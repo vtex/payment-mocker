@@ -18,7 +18,9 @@ The main features of Pink:
 
 When you run `grunt`, Pink starts a server at [http://localhost:8080/](http://localhost:8080/), compiles Less and Sass files and begin watching changes in all files inside `assets` folder. Any change will reload the page or just reload css files, in case of style changes.
 
-When you run `grunt build`, Pink makes a copy of `src` folder to `build` and removes `.less` and `.scss` files from the last one.## Dependencies
+When you run `grunt build`, Pink makes a copy of `src` folder to `build` and removes `.less` and `.scss` files from the last one.
+
+## Dependencies
 
 1.  [Node.js](http://nodejs.org/download)
 2.  [Ruby](http://rubyinstaller.org/downloads) (Windows users)
