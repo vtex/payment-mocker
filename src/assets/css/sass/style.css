@@ -1,0 +1,15 @@
+@media only screen and (max-device-width: 568px) and (-webkit-min-device-pixel-ratio: 2) {
+  select, textarea, input[type="text"], input[type="password"], input[type="datetime"], input[type="datetime-local"], input[type="date"], input[type="month"], input[type="time"], input[type="week"], input[type="number"], input[type="email"], input[type="url"], input[type="search"], input[type="tel"], input[type="color"] {
+    font-size: 16px;
+  }
+
+  input {
+    -webkit-appearance: none;
+    border-radius: 0;
+  }
+}
+h1 {
+  color: pink;
+}
+
+/*# sourceMappingURL=style.css.map */

@@ -1,0 +1,109 @@
+<!doctype html>
+<html class="no-js">
+  <head>
+    <meta charset="utf-8">
+    <title>Pink - A simple front-end boilerplate for Interaction Designers and Developers.</title>
+
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <meta name="description" content="A simple front-end boilerplate for Interaction Designers and Developers.">
+    <meta name="viewport" content="width=device-width,initial-scale=1">
+
+    <link href="//www.google-analytics.com" rel="dns-prefetch">
+    <link href="//ajax.googleapis.com" rel="dns-prefetch">
+
+    <link rel="stylesheet" href="assets/css/bootstrap.css" media="screen" title="no title" charset="utf-8">
+    <link rel="stylesheet" href="assets/css/sass/style.css" media="screen" title="no title" charset="utf-8">
+
+    <script src="assets/libs/angular.min.js"></script>
+    <script src="assets/js/app.js"></script>
+  </head>
+  <body ng-app="pinkModule">
+
+    <main class="main container" role="main">
+      <h1>Pink</h1>
+      <p>
+        A simple front-end boilerplate for Interaction Designers and Developers.
+      </p>
+
+      <h2>Features</h2>
+      <p>
+        The main features of Pink:
+      </p>
+      <ul>
+        <li>Local server</li>
+        <li>Less and Sass autocompile</li>
+        <li>Bootstrap Less files included for customization</li>
+        <li>Livereload for any files changes</li>
+        <li><a href="https://github.com/vtex-apps/css-utils">VTEX CSS Utils</a> styleguide FTW</li>
+        <li><em>Build</em> command for publishing filtered files</li>
+        <li>Front-end development frameworks included: jQuery, AngularJS, React, Underscore</li>
+      </ul>
+
+      <h2>How it works</h2>
+      <p>
+        When you run <code>grunt</code>, Pink starts a server at <a href="http://localhost:8080/">http://localhost:8080/</a>, compiles Less and Sass files and begin watching changes in all files inside <code>assets</code> folder. Any change will reload the page or just reload css files, in case of style changes.
+      </p>
+      <p>
+        When you run <code>grunt build</code>, Pink makes a copy of <code>src</code> folder to <code>build</code> and removes <code>.less</code> and <code>.scss</code> files from the last one.
+      </p>
+
+      <h2>Dependencies</h2>
+      <ol>
+        <li><a href="http://nodejs.org/download">Node.js</a></li>
+        <li><a href="http://rubyinstaller.org/downloads">Ruby</a> (Windows users)</li>
+        <li>Grunt: run <code>sudo npm i -g grunt-cli</code></li>
+        <li><a href="http://sass-lang.com/install">Sass</a></li>
+      </ol>
+
+      <h2>Installation</h2>
+      <ol>
+        <li>Download or clone Pink</li>
+        <li>Install NPM dependencies: run <code>npm i</code></li>
+      </ol>
+
+      <h2>Hands on!</h2>
+
+      <h3>Running Pink</h3>
+      <ol>
+        <li>Run <code>grunt</code></li>
+        <li>Go to <a href="http://localhost:8080/">http://localhost:8080/</a></li>
+      </ol>
+
+      <h3>Generating a new bootstrap.css file</h3>
+      <p>
+        If you make changes on bootstrap.less file, you'll need to run this:
+      </p>
+      <p>
+        <pre>grunt less:bootstrap</pre>
+      </p>
+
+      <h3>Generating a Build folder</h3>
+      <p>
+        <pre>grunt build</pre>
+      </p>
+
+      <h2>Bonus: some AngularJS examples</h2>
+
+      <div ng-include="'partials/partial.html'"></div>
+
+      <div ng-controller="bandController">
+        <h3>ngRepeat</h3>
+        <p>
+          It's a list made using <strong>ngRepeat</strong> directive. Based on a <a href="assets/data/band.json">JSON file</a>, you can list items of an array.
+        </p>
+
+        <h4>Pink Floyd members</h4>
+        <ul>
+          <li ng-repeat="member in band">
+            <strong>{{ member.name }}</strong> - {{ member.instruments }} ({{ member.years }})
+          </li>
+        </ul>
+      </div>
+    </main>
+
+    <script src="assets/libs/jquery-1.12.3.min.js"></script>
+    <script>window.jQuery || document.write('<script src="assets/components/jquery.js"><\/script>');</script>
+    <script src="assets/js/scripts.js"></script>
+
+  </body>
+</html>

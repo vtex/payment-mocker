@@ -1,0 +1,7 @@
+{
+"version": 3,
+"mappings": "AAIA,wFAE0C;EAExC,+TAAgU;IAC9T,SAAS,EAAE,IAAI;;;EAGjB,KAAM;IACF,kBAAkB,EAAE,IAAI;IACxB,aAAa,EAAE,CAAC;;;ACZtB,EAAG;EACD,KAAK,EAAE,IAAI",
+"sources": ["../../../../node_modules/vtex-css-utils/sass/mobile-fixes.scss","style.scss"],
+"names": [],
+"file": "style.css"
+}
