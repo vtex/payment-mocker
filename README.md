@@ -20,6 +20,8 @@ When you run `grunt`, Pink starts a server at [http://localhost:8080/](http://lo
 
 When you run `grunt build`, Pink makes a copy of `src` folder to `build` and removes `.less` and `.scss` files from the last one.
 
+When you run `grunt dist`, Pink runs `grunt build` and publish it's content to `gh-pages` branch.
+
 ## Dependencies
 
 1.  [Node.js](http://nodejs.org/download)
@@ -50,6 +52,12 @@ grunt less:bootstrap
 
 ````
 grunt build
+````
+
+### Publishing to gh-pages branch
+
+````
+grunt dist
 ````
 
 ## Thank you! :)

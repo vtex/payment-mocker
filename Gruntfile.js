@@ -94,6 +94,12 @@ module.exports = function(grunt) {
       dev: {
         tasks: ['watch:css', 'watch:livereload']
       }
+    },
+    'gh-pages': {
+      options: {
+        base: 'build'
+      },
+      src: ['**']
     }
   });
 
@@ -110,6 +116,11 @@ module.exports = function(grunt) {
     'sass:dev',
     'copy',
     'clean:css'
+  ]);
+
+  grunt.registerTask('dist', [
+    'build',
+    'gh-pages'
   ]);
 
 };
