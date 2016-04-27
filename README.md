@@ -23,9 +23,8 @@ When you run `grunt build`, Pink makes a copy of `src` folder to `build` and rem
 ## Dependencies
 
 1.  [Node.js](http://nodejs.org/download)
-2.  [Ruby](http://rubyinstaller.org/downloads) (Windows users)
-3.  Grunt: run `sudo npm i -g grunt-cli`
-4.  [Sass](http://sass-lang.com/install)
+2.  Grunt: run `sudo npm i -g grunt-cli`
+3.  [Sass](http://sass-lang.com/install)
 
 ## Installation
 
