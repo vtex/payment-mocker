@@ -1,0 +1,51 @@
+h3.payment-newpayment-title {
+  background: #00a3db url('/assets/img/payment-safetypay-title.png') center center no-repeat;
+  display: block;
+  height: 29px;
+  margin: -15px 0 15px -15px;
+  padding: 0 15px;
+  text-indent: -999em;
+  width: 100%;
+}
+.payment-newpayment-description-banks {
+  background: url('/assets/img/payment-safetypay-banks.png') 0 0 no-repeat;
+  height: 40px;
+  margin: 15px 0 30px;
+  text-indent: -999em;
+}
+.payment-newpayment-benefit {
+  background: #fff;
+  padding: 10px;
+  padding-bottom: 0;
+  text-align: center;
+}
+.payment-newpayment-benefit-title {
+  background: url('/assets/img/payment-safetypay-icons.png') top center no-repeat;
+  font-size: 16px;
+  padding-top: 85px;
+  text-transform: uppercase;
+}
+.payment-newpayment-benefit-fast .payment-newpayment-benefit-title {
+  background-position: center -150px;
+}
+.payment-newpayment-benefit-safe .payment-newpayment-benefit-title {
+  background-position: center -300px;
+}
+.payment-newpayment-benefit-description {
+  line-height: 1.4;
+}
+.payment-newpayment-help {
+  margin-top: 20px;
+  text-align: center;
+}
+@media (max-width: 490px) {
+  .payment-newpayment-benefit-title {
+    background: none;
+    padding-top: 0;
+  }
+}
+@media (max-width: 979px) {
+  .payment-newpayment-benefit {
+    overflow: hidden;
+  }
+}
