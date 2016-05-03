@@ -1,10 +1,12 @@
 # VTEX Checkout Payment UI
 
-A mocked boilerplate to develop payment options to VTEX Smart Checkout based on [Pink](https://github.com/augustocb/pink).
+A boilerplate to develop payment methods to VTEX Smart Checkout based on [Pink](https://github.com/augustocb/pink).
+
+We recommend you read the [Guide to Design a Payment Method to VTEX Smart Checkout](https://docs.google.com/document/d/16JVEF6I5brdUl_zHpE6kUriVKuigycVUNEt20iPyoNI/edit#heading=h.qytoq9cybc2s).
 
 ## Features
 
-The main features of Pink:
+The main features:
 
 *   Local server
 *   Less autocompile
