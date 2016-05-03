@@ -1,4 +1,4 @@
-# Payment Mocker
+# VTEX Payment Mocker
 
 A boilerplate to develop and test a Payment Method to VTEX Smart Checkout, based on [Pink](https://github.com/augustocb/pink).
 
