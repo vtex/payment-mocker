@@ -44,27 +44,12 @@ module.exports = function(grunt) {
         files: {
           '<%= project.assets %>/css/less/style.css': '<%= project.assets %>/css/less/style.less'
         }
-      },
-      bootstrap: {
-        files: {
-          '<%= project.assets %>/css/bootstrap.css': '<%= project.assets %>/css/bootstrap/bootstrap.less'
-        }
-      }
-    },
-    sass: {
-      dev: {
-        options: {
-          style: 'expanded'
-        },
-        files: {
-          '<%= project.assets %>/css/sass/style.css': '<%= project.assets %>/css/sass/style.scss'
-        }
       }
     },
     watch: {
       css: {
-        files: ['<%= project.assets %>/css/less/style.less', '<%= project.assets %>/css/sass/style.scss'],
-        tasks: ['less:dev', 'sass:dev']
+        files: ['<%= project.assets %>/css/less/style.less'],
+        tasks: ['less:dev']
       },
       livereload: {
         options: {
@@ -73,7 +58,6 @@ module.exports = function(grunt) {
         files: [
           '<%= project.src %>/{,*/}*.html',
           '<%= project.assets %>/css/{,*/}*.css',
-          '<%= project.assets %>/js/{,*/}*.js',
           '<%= project.assets %>/{,*/}*.{png,jpg,jpeg,gif,webp,svg}'
         ]
       }
@@ -88,7 +72,7 @@ module.exports = function(grunt) {
     },
     clean: {
       build: ['<%= project.build %>'],
-      css: ['<%= project.build %>/assets/css/bootstrap', '<%= project.build %>/assets/css/**/*.less', '<%= project.build %>/assets/css/**/*.scss']
+      css: ['<%= project.build %>/assets/css/**/*.less']
     },
     concurrent: {
       dev: {
@@ -105,7 +89,6 @@ module.exports = function(grunt) {
 
   grunt.task.registerTask('default', [
     'less:dev',
-    'sass:dev',
     'connect',
     'concurrent:dev'
   ]);
@@ -113,7 +96,6 @@ module.exports = function(grunt) {
   grunt.registerTask('build', [
     'clean:build',
     'less:dev',
-    'sass:dev',
     'copy',
     'clean:css'
   ]);
