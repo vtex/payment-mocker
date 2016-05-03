@@ -4,6 +4,8 @@ A boilerplate to develop payment methods to VTEX Smart Checkout based on [Pink](
 
 We recommend you read the [Guide to Design a Payment Method to VTEX Smart Checkout](https://docs.google.com/document/d/16JVEF6I5brdUl_zHpE6kUriVKuigycVUNEt20iPyoNI/edit#heading=h.qytoq9cybc2s).
 
+You can see an example of a Payment Method layout working in [http://vtex.github.io/checkout-payment-ui/](http://vtex.github.io/checkout-payment-ui/).
+
 ## Features
 
 The main features:
