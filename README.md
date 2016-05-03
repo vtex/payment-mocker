@@ -1,6 +1,6 @@
-# VTEX Checkout Payment UI
+# Payment Mocker
 
-A boilerplate to develop payment methods to VTEX Smart Checkout based on [Pink](https://github.com/augustocb/pink).
+A boilerplate to develop and test a Payment Method to VTEX Smart Checkout, based on [Pink](https://github.com/augustocb/pink).
 
 We recommend you read the [Guide to Design a Payment Method to VTEX Smart Checkout](https://docs.google.com/document/d/16JVEF6I5brdUl_zHpE6kUriVKuigycVUNEt20iPyoNI/edit#heading=h.qytoq9cybc2s).
 
@@ -13,13 +13,13 @@ The main features:
 *   Local server
 *   Less autocompile
 *   Livereload for any files changes
-*   Mocked VTEX Smart Checkout HTML and CSS
+*   Base of VTEX Smart Checkout HTML and CSS
 
 ## How it works
 
 When you run `grunt`, it starts a server at [http://localhost:8080/](http://localhost:8080/), compiles `style.less` file and begin watching changes in all files inside `assets` folder. Any change will reload the page or just reload css files, in case of style changes.
 
-You can test your payment layout creating/modifying:
+You can test your layout creating/modifying:
 
 *   `src/partials/payment.html`: HTML file
 *   `src/assets/css/less/style.less`: style file
