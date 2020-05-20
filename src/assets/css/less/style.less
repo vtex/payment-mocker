@@ -1,51 +1,69 @@
-// Payment style
-
-// safetypay
-// -----------------------------------------------
-h3.payment-newpayment-title {
-	background: #00a3db url('../../img/payment-safetypay-title.png') center center no-repeat;
-	display: block;
-	height: 29px;
-	margin: -15px 0 15px -15px;
-	padding: 0 15px;
-	text-indent: -999em;
-	width: 100%;
-}
-.payment-newpayment-description-banks {
-	background: url('../../img/payment-safetypay-banks.png') 0 0 no-repeat;
-	height: 40px;
-	margin: 15px 0 30px;
-	text-indent: -999em;
-}
-.payment-newpayment-benefit {
-	background: #fff;
-	padding: 10px;
-	padding-bottom: 0;
-	text-align: center;
-}
-.payment-newpayment-benefit-title {
-	background: url('../../img/payment-safetypay-icons.png') top center no-repeat;
-	font-size: 16px;
-	padding-top: 85px;
-	text-transform: uppercase;
-	.payment-newpayment-benefit-fast & { background-position: center -150px; }
-	.payment-newpayment-benefit-safe & { background-position: center -300px; }
-}
-.payment-newpayment-benefit-description { line-height: 1.4; }
-.payment-newpayment-help {
-	margin-top: 20px;
-	text-align: center;
+.virtus-color {
+    color: #21c8ce !important;
 }
 
-@media (max-width: 490px) {
-  .payment-newpayment-benefit-title {
-    background: none;
-    padding-top: 0;
-  }
+.virtus-background-color {
+    background-color: #16eef1;
+    padding: .1rem;
 }
 
-@media (max-width: 979px) {
-  .payment-newpayment-benefit {
-    overflow: hidden;
-  }
+.line {
+    width: 100%;
+    line-height: 1;
+}
+
+.virtus-text {
+    font-size: 0.9rem;
+}
+
+.box-payment-virtuspay {
+    color: #000000;
+}
+
+h3.payment-virtus-title {
+    background: rgba(200, 200, 200, .1) url('../../img/logo_virtuspay.png') center center no-repeat;
+    display: block;
+    height: 70px;
+    margin: -15px 0 15px -15px;
+    padding: 0 15px;
+    text-indent: -999em;
+    width: 100%;
+}
+
+ol.custom-ol-virtus {
+    max-width: 350px;
+    counter-reset: virtuspay-counter;
+    list-style: none;
+}
+
+ol.custom-ol-virtus li {
+    margin: 0 0 0.5rem 0;
+    counter-increment: virtuspay-counter;
+    position: relative;
+    margin-left: 1rem;
+    line-height: normal;
+}
+
+ol.custom-ol-virtus li:nth-child(odd){
+    margin-bottom: 1rem;
+    padding-top: .5rem;
+}
+
+ol.custom-ol-virtus li:nth-child(even) {
+    padding-top: .1rem;
+}
+
+ol.custom-ol-virtus li::before {
+    content: counter(virtuspay-counter);
+    color: #000000;
+    font-size: 1.5rem;
+    font-weight: bold;
+    position: absolute;
+    left: -42px;
+    line-height: 32px;
+    width: 32px;
+    height: 32px;
+    top: 0;
+    background: #16eef1;
+    text-align: right;
 }
