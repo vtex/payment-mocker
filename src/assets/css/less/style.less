@@ -1,51 +1,122 @@
 // Payment style
 
-// safetypay
+// lendico
 // -----------------------------------------------
-h3.payment-newpayment-title {
-	background: #00a3db url('../../img/payment-safetypay-title.png') center center no-repeat;
+h3.payment-lendico-title {
+	background: url('../../img/payment-lendico-logo.png') center center no-repeat;
+	background-size: 212px 187px;
 	display: block;
-	height: 29px;
-	margin: -15px 0 15px -15px;
+	height: 9em;
+	margin: -15px 0 0 -15px;
 	padding: 0 15px;
 	text-indent: -999em;
 	width: 100%;
 }
-.payment-newpayment-description-banks {
-	background: url('../../img/payment-safetypay-banks.png') 0 0 no-repeat;
+
+.payment-lendico-content {
+	padding: 0 1em;
+}
+
+.payment-lendico-content-title {
+	font-size: 12px;
+	font-weight: bold;
+}
+
+.payment-lendito-content-descriptions {
+	display: flex;
+	flex-direction: column;
+	margin-top: 1em;
+
+	div.payment-lendito-content-item:not(:last-child){
+		margin-bottom: 1em;
+	}
+}
+
+.payment-lendito-content-item {
+	align-items: center;
+	display: flex
+}
+
+.payment-lendito-content-item-box-image{
+	align-items: center;
+	display: flex;
+	flex-direction: column;
+	justify-content: center;
+	min-width: 5em;
+	
+	p{
+    font-size: 12px;
+    font-weight: bold;
+		line-height: 2em;
+		margin: 0;
+		text-align: center;
+	}
+}
+
+.payment-lendito-content-item-box-text{
+	margin-left: 1em;
+	
+	p{
+    font-size: 12px;
+		line-height: 1.2em;
+		margin: 0;
+	}
+}
+
+.payment-lendito-content-item-money {
+	background: url('../../img/payment-lendico-icons.png') center center no-repeat;
+	background-position: -8px -56px;
+	background-size: 4em;
+	display: flex;
 	height: 40px;
-	margin: 15px 0 30px;
-	text-indent: -999em;
+	width: 40px;
 }
-.payment-newpayment-benefit {
-	background: #fff;
-	padding: 10px;
-	padding-bottom: 0;
-	text-align: center;
+
+.payment-lendito-content-item-lamp {
+	background: url('../../img/payment-lendico-icons.png') center center no-repeat;
+	background-position: -0px -0px;
+	background-size: 3em;
+	display: flex;
+	height: 40px;
+	width: 40px;
 }
-.payment-newpayment-benefit-title {
-	background: url('../../img/payment-safetypay-icons.png') top center no-repeat;
-	font-size: 16px;
-	padding-top: 85px;
-	text-transform: uppercase;
-	.payment-newpayment-benefit-fast & { background-position: center -150px; }
-	.payment-newpayment-benefit-safe & { background-position: center -300px; }
-}
-.payment-newpayment-benefit-description { line-height: 1.4; }
-.payment-newpayment-help {
-	margin-top: 20px;
-	text-align: center;
+
+.payment-lendito-content-item-shield {
+	background: url('../../img/payment-lendico-icons.png') center center no-repeat;
+	background-position: -0px -77px;
+	background-size: 3em;
+	display: flex;
+	height: 40px;
+	width: 40px;
 }
 
 @media (max-width: 490px) {
-  .payment-newpayment-benefit-title {
-    background: none;
-    padding-top: 0;
-  }
+  .payment-lendico-content-title {
+		font-size: 11px;
+		text-align: center
+	}
+
+
+	.payment-lendito-content-descriptions {
+		margin-top: 2em;
+		
+		div.payment-lendito-content-item:not(:last-child) {
+			margin-bottom: 2em;
+		}
+	}
+
+	.payment-lendito-content-item {
+		flex-direction: column;
+	}
+
+	.payment-lendito-content-item-box-image{
+		margin-bottom: 0.5em;
+	}
+
+	.payment-lendito-content-item-box-text{
+		p{
+			text-align: center
+		}
+	}
 }
 
-@media (max-width: 979px) {
-  .payment-newpayment-benefit {
-    overflow: hidden;
-  }
-}
