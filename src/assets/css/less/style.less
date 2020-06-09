@@ -1,8 +1,9 @@
-.virtus-color {
+.payment-virtuspay-color {
     color: #21c8ce !important;
 }
 
-.virtus-background-color {
+.payment-virtuspay-bg {
+    color: #000;
     background-color: #16eef1;
     padding: .1rem;
 }
@@ -12,15 +13,19 @@
     line-height: 1;
 }
 
-.virtus-text {
-    font-size: 0.9rem;
+.payment-virtuspay-text {
+    font-size: 0.8rem;
 }
 
-.box-payment-virtuspay {
-    color: #000000;
+.payment-virtuspay-margin {
+    padding-bottom: 12px;
 }
 
-h3.payment-virtus-title {
+.payment-virtuspay-box {
+    color: #2E2E2E;
+}
+
+h3.payment-virtuspay-title {
     background: rgba(200, 200, 200, .1) url('../../img/logo_virtuspay.png') center center no-repeat;
     display: block;
     height: 70px;
@@ -30,13 +35,13 @@ h3.payment-virtus-title {
     width: 100%;
 }
 
-ol.custom-ol-virtus {
+ol.payment-virtuspay-list {
     max-width: 350px;
     counter-reset: virtuspay-counter;
     list-style: none;
 }
 
-ol.custom-ol-virtus li {
+ol.payment-virtuspay-list li {
     margin: 0 0 0.5rem 0;
     counter-increment: virtuspay-counter;
     position: relative;
@@ -44,18 +49,18 @@ ol.custom-ol-virtus li {
     line-height: normal;
 }
 
-ol.custom-ol-virtus li:nth-child(odd){
+ol.payment-virtuspay-list li:nth-child(odd){
     margin-bottom: 1rem;
     padding-top: .5rem;
 }
 
-ol.custom-ol-virtus li:nth-child(even) {
+ol.payment-virtuspay-list li:nth-child(even) {
     padding-top: .1rem;
 }
 
-ol.custom-ol-virtus li::before {
+ol.payment-virtuspay-list li::before {
     content: counter(virtuspay-counter);
-    color: #000000;
+    color: #2E2E2E;
     font-size: 1.5rem;
     font-weight: bold;
     position: absolute;
