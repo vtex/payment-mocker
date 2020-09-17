@@ -1,51 +1,77 @@
-h3.payment-newpayment-title {
-  background: #00a3db url('/assets/img/payment-safetypay-title.png') center center no-repeat;
-  display: block;
-  height: 29px;
-  margin: -15px 0 15px -15px;
-  padding: 0 15px;
-  text-indent: -999em;
-  width: 100%;
-}
-.payment-newpayment-description-banks {
-  background: url('/assets/img/payment-safetypay-banks.png') 0 0 no-repeat;
-  height: 40px;
-  margin: 15px 0 30px;
-  text-indent: -999em;
-}
+.payment-newpayment-benefits,
+.payment-newpayment-benefit-description,
+.payment-newpayment-description,
 .payment-newpayment-benefit {
-  background: #fff;
-  padding: 10px;
-  padding-bottom: 0;
-  text-align: center;
+  display: flex;
+  flex-direction: column;
+  place-items: flex-start;
 }
-.payment-newpayment-benefit-title {
-  background: url('/assets/img/payment-safetypay-icons.png') top center no-repeat;
-  font-size: 16px;
-  padding-top: 85px;
-  text-transform: uppercase;
+
+.payment-newpayment-benefit {
+  flex-direction: row;
+  flex-wrap: nowrap;
+  align-items: center;
 }
-.payment-newpayment-benefit-fast .payment-newpayment-benefit-title {
-  background-position: center -150px;
+
+.payment-newpayment-header-image {
+  display: flex;
+  height: 47px;
+  width: 133px;
+  align-self: center;
+  margin-bottom: 1rem;
+  background-image: url('/assets/img/pix.svg');
+  background-repeat: no-repeat;
 }
-.payment-newpayment-benefit-safe .payment-newpayment-benefit-title {
-  background-position: center -300px;
+
+.payment-newpayment-description-text { margin-bottom: 1rem; }
+.payment-newpayment-benefit { margin-bottom: .75rem; }
+
+.payment-newpayment-benefit-description-title {
+  font-weight: bold;
+  margin-bottom: 0;
 }
+
+.payment-newpayment-benefit-description-title,
+.payment-newpayment-benefit-description-content {
+  font-size: 13px;
+  font-family: 'Helvetica Neue';
+}
+
+.payment-newpayment-benefit-fast > .payment-newpayment-benefit-icon { background-image: url('/assets/img/fast-cart.svg'); }
+.payment-newpayment-benefit-safe > .payment-newpayment-benefit-icon { background-image: url('/assets/img/secure.svg'); }
+.payment-newpayment-benefit-easy > .payment-newpayment-benefit-icon { background-image: url('/assets/img/phone-camera.svg'); }
+
+.payment-newpayment-benefit-icon {
+  height: 40px;
+  width: 40px;
+  margin-right: 10px;
+  margin-top: 5px;
+
+  align-self: flex-start;
+
+  background-repeat: no-repeat;
+  background-position: 0 0;
+  background-size: cover;
+}
+
 .payment-newpayment-benefit-description {
-  line-height: 1.4;
+  max-width: 80%;
+  max-width: calc(100% - 50px);
 }
-.payment-newpayment-help {
-  margin-top: 20px;
-  text-align: center;
-}
-@media (max-width: 490px) {
-  .payment-newpayment-benefit-title {
-    background: none;
-    padding-top: 0;
-  }
-}
+
 @media (max-width: 979px) {
-  .payment-newpayment-benefit {
-    overflow: hidden;
+}
+
+@media (max-width: 490px) {
+  .payment-newpayment-benefit-description-title,
+  .payment-newpayment-benefit-description-content {
+    font-size: 12px;
+  }
+  
+  .payment-newpayment-benefit-icon {
+    height: 30px;
+    width: 30px;
+    margin-top: 15px;
   }
 }
+
