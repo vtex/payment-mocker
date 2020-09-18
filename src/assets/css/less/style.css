@@ -1,77 +1,79 @@
-.payment-newpayment-benefits,
-.payment-newpayment-benefit-description,
-.payment-newpayment-description,
-.payment-newpayment-benefit {
+.payment-pix-benefits,
+.payment-pix-benefit-description,
+.payment-pix-description,
+.payment-pix-benefit {
   display: flex;
   flex-direction: column;
-  place-items: flex-start;
+  place-items: center flex-start;
 }
 
-.payment-newpayment-benefit {
+.payment-pix-benefits {
   flex-direction: row;
   flex-wrap: nowrap;
+  place-items: flex-start center;
+}
+
+.payment-pix-benefit {
+  width: 33%;
+  width: calc(100% / 3);
+  padding: 0 5px;
   align-items: center;
 }
 
-.payment-newpayment-header-image {
+.payment-pix-header-image {
   display: flex;
   height: 47px;
   width: 133px;
-  align-self: center;
-  margin-bottom: 1rem;
+  margin-bottom: 2rem;
+  
   background-image: url('/assets/img/pix.svg');
   background-repeat: no-repeat;
 }
 
-.payment-newpayment-description-text { margin-bottom: 1rem; }
-.payment-newpayment-benefit { margin-bottom: .75rem; }
+.payment-pix-benefit { margin-bottom: .75rem; }
+.payment-pix-benefit-fast > .payment-pix-benefit-icon { background-image: url('/assets/img/fast-cart.svg'); }
+.payment-pix-benefit-safe > .payment-pix-benefit-icon { background-image: url('/assets/img/secure.svg'); }
+.payment-pix-benefit-easy > .payment-pix-benefit-icon { background-image: url('/assets/img/phone-camera.svg'); }
 
-.payment-newpayment-benefit-description-title {
-  font-weight: bold;
-  margin-bottom: 0;
-}
-
-.payment-newpayment-benefit-description-title,
-.payment-newpayment-benefit-description-content {
-  font-size: 13px;
-  font-family: 'Helvetica Neue';
-}
-
-.payment-newpayment-benefit-fast > .payment-newpayment-benefit-icon { background-image: url('/assets/img/fast-cart.svg'); }
-.payment-newpayment-benefit-safe > .payment-newpayment-benefit-icon { background-image: url('/assets/img/secure.svg'); }
-.payment-newpayment-benefit-easy > .payment-newpayment-benefit-icon { background-image: url('/assets/img/phone-camera.svg'); }
-
-.payment-newpayment-benefit-icon {
+.payment-pix-benefit-icon {
   height: 40px;
   width: 40px;
-  margin-right: 10px;
-  margin-top: 5px;
-
-  align-self: flex-start;
+  margin-bottom: .75rem;
 
   background-repeat: no-repeat;
   background-position: 0 0;
   background-size: cover;
 }
 
-.payment-newpayment-benefit-description {
-  max-width: 80%;
-  max-width: calc(100% - 50px);
+.payment-pix-benefit-description,
+.payment-pix-footer {
+  text-align: center;
 }
 
-@media (max-width: 979px) {
-}
+.payment-pix-footer { margin: 1rem 0; }
 
 @media (max-width: 490px) {
-  .payment-newpayment-benefit-description-title,
-  .payment-newpayment-benefit-description-content {
-    font-size: 12px;
+  .payment-pix-header-image { margin-bottom: .75rem; }
+
+  .payment-pix-benefits {
+    flex-direction: column;
+    align-items: center;
+  }
+
+  .payment-pix-benefit {
+    flex-direction: row;
+    justify-content: center;
+    width: 100%;
+    margin-bottom: 0;
   }
   
-  .payment-newpayment-benefit-icon {
+  .payment-pix-benefit-icon {
     height: 30px;
     width: 30px;
     margin-top: 15px;
+    margin-right: 10px;
   }
+
+  .payment-pix-footer { margin: 1.5rem 0 0 0; }
 }
 
