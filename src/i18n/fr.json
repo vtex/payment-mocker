@@ -1,0 +1,12 @@
+{
+    "paymentData.paymentGroup.title": "Debit bancaire",
+    "paymentData.paymentGroup.debitoBancario.title": "Debit bancaire",
+    "paymentData.paymentGroup.debitoBancario.redirectInstructions": "À la fin de l'achat, vous serez redirigé vers votre banque pour paiement par débit. Après cela, votre achat sera confirmé.",
+    "paymentData.paymentGroup.debitoBancario.guaranteed": "Garanti",
+    "paymentData.paymentGroup.debitoBancario.beCool": "Ne t'en fais pas. Nous offrons la garantie d'un environnement certifié.",
+    "paymentData.paymentGroup.debitoBancario.fast": "Vite",
+    "paymentData.paymentGroup.debitoBancario.authorizeViaInternetBanking": "Autorisez simplement le paiement via Internet Banking et faites valider votre commande.",
+    "paymentData.paymentGroup.debitoBancario.safe": "Sûr",
+    "paymentData.paymentGroup.debitoBancario.noRegisterNeeded": "Aucune inscription requise et aucun stockage de vos données financières.",
+    "paymentData.paymentGroup.debitoBancario.contact": "En cas de doute, écrivez à falecom@safetypay.com"
+}
