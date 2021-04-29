@@ -2313,8 +2313,8 @@ a.client-masked-info {
 #payment-group-peelaPaymentGroup .payment-group-item-text {
   background-image: url('../img/ico-peela.png');
 }
-#payment-group-safetypayPaymentGroup .payment-group-item-text {
-  background-image: url('../img/ico-safetypay.png');
+#payment-group-template-PaymentGroup .payment-group-item-text {
+	background-size: 30px;
 }
 #payment-group-lotteryPaymentGroup .payment-group-item-text {
   background-image: url('../img/ico-lottery.png');
@@ -2337,9 +2337,6 @@ a.client-masked-info {
 .store-country-PER #payment-group-lotteryPaymentGroup .payment-group-item-text,
 .store-country-COL #payment-group-lotteryPaymentGroup .payment-group-item-text,
 .store-country-DEU #payment-group-lotteryPaymentGroup .payment-group-item-text,
-.store-country-PRT #payment-group-lotteryPaymentGroup .payment-group-item-text {
-  background-image: url('../img/ico-safetypay.png');
-}
 #payment-group-RedePayPaymentGroup .payment-group-item-text {
   background-image: url('../img/ico-redepay.png');
 }
