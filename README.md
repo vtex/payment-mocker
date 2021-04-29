@@ -14,6 +14,7 @@ The main features:
 *   Less autocompile
 *   Livereload for any files changes
 *   Base of VTEX Smart Checkout HTML and CSS
+*   Internationalization for 4 idioms: FR, EN, PT-BR and ES
 
 ## How it works
 
@@ -24,6 +25,7 @@ You can test your layout creating/modifying:
 *   `src/partials/payment.html`: HTML file
 *   `src/assets/css/less/style.less`: style file
 *   `src/assets/img/`: images folder
+*   `src/i18n`: internalization folder
 
 ## Dependencies
 

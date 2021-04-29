@@ -1,0 +1,12 @@
+{
+    "paymentData.paymentGroup.title": "Debit",
+    "paymentData.paymentGroup.debitoBancario.title": "Debit",
+    "paymentData.paymentGroup.debitoBancario.redirectInstructions": "Upon completion of the purchase, you will be redirected to your bank for payment via debit. After that, your purchase will be confirmed.",
+    "paymentData.paymentGroup.debitoBancario.guaranteed": "Guaranteed",
+    "paymentData.paymentGroup.debitoBancario.beCool": "Rest assured. We offer the guarantee of a certified environment.",
+    "paymentData.paymentGroup.debitoBancario.fast": "Fast",
+    "paymentData.paymentGroup.debitoBancario.authorizeViaInternetBanking": "Just authorize payment via Internet Banking and have your order released.",
+    "paymentData.paymentGroup.debitoBancario.safe": "Safe",
+    "paymentData.paymentGroup.debitoBancario.noRegisterNeeded": "No registration required and no storage of your financial data.",
+    "paymentData.paymentGroup.debitoBancario.contact": "If you have any questions, write to falecom@safetypay.com"
+}
