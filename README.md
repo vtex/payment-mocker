@@ -14,7 +14,7 @@ The main features:
 *   Less autocompile
 *   Livereload for any files changes
 *   Base of VTEX Smart Checkout HTML and CSS
-*   Internationalization for 4 languages: FR, EN, PT-BR and ES
+*   Internationalization for 4 idioms: FR, EN, PT-BR and ES
 
 ## How it works
 
