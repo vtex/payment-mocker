@@ -55,17 +55,22 @@ function run(templateDir, rules, opts = {}) {
     ? rules.filter(r => opts.rules.includes(r.ruleName))
     : rules;
 
-  return activeRules.flatMap(rule => {
+  const details = activeRules.map(rule => {
+    let errors;
     try {
-      return rule(template, opts);
+      errors = rule(template, opts);
     } catch (err) {
-      return [{
+      errors = [{
         rule: rule.ruleName || 'unknown',
         message: `Erro interno na rule: ${err.message}`,
         severity: 'warning',
       }];
     }
+    const description = rule.describe ? rule.describe(template) : null;
+    return { rule: rule.ruleName, ok: errors.length === 0, errors, description };
   });
+
+  return { template, details, errors: details.flatMap(d => d.errors) };
 }
 
 module.exports = { readTemplate, run };

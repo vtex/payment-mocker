@@ -33,4 +33,8 @@ function htmlSafety(template) {
 }
 
 htmlSafety.ruleName = 'htmlSafety';
+htmlSafety.describe = function(template) {
+  return template.html ? path.basename(template.html.path) : 'sem HTML';
+};
+const path = require('path');
 module.exports = htmlSafety;

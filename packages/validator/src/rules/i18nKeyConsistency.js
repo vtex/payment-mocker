@@ -52,4 +52,14 @@ function i18nKeyConsistency(template) {
 }
 
 i18nKeyConsistency.ruleName = 'i18nKeyConsistency';
+i18nKeyConsistency.describe = function(template) {
+  const files = template.i18nFiles || [];
+  if (files.length === 0) return 'nenhum arquivo i18n encontrado';
+  try {
+    const keys = Object.keys(JSON.parse(files[0].content)).length;
+    return `${files.length} locale(s), ${keys} chave(s)`;
+  } catch {
+    return `${files.length} locale(s)`;
+  }
+};
 module.exports = i18nKeyConsistency;

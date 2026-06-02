@@ -16,4 +16,10 @@ function maxFileSize(template, opts = {}) {
 }
 
 maxFileSize.ruleName = 'maxFileSize';
+maxFileSize.describe = function(template) {
+  const files = (template.assets || [])
+    .concat([template.html, template.css, template.i18n, template.icon].filter(Boolean));
+  const total = files.reduce((sum, f) => sum + (f.size || 0), 0);
+  return `${files.length} arquivo(s), ${Math.round(total / 1024)} KB`;
+};
 module.exports = maxFileSize;

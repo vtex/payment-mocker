@@ -41,4 +41,10 @@ function noExternalRefs(template) {
 }
 
 noExternalRefs.ruleName = 'noExternalRefs';
+noExternalRefs.describe = function(template) {
+  const parts = [];
+  if (template.html) parts.push('HTML');
+  if (template.css) parts.push('CSS');
+  return parts.length ? parts.join(' + ') : 'sem HTML/CSS';
+};
 module.exports = noExternalRefs;
