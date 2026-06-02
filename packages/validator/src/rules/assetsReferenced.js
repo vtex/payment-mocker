@@ -37,7 +37,10 @@ function assetsReferenced(template) {
     return path.resolve(template.templateDir, ref);
   };
 
-  const assetPaths = new Set((template.assets || []).map(a => a.path));
+  // Include slot files (icon, html, css, i18n) as valid reference targets
+  const slotPaths = [template.html, template.css, template.i18n, template.icon]
+    .filter(Boolean).map(s => s.path);
+  const assetPaths = new Set([...(template.assets || []).map(a => a.path), ...slotPaths]);
   const imageAssets = (template.assets || []).filter(a => IMAGE_EXTS.has(path.extname(a.path).toLowerCase()));
   const imageAssetPaths = new Set(imageAssets.map(a => a.path));
 

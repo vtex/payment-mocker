@@ -1,0 +1,8 @@
+{
+  "payment.title": "Paiement Exemple",
+  "payment.instructions": "Après la commande, vous serez redirigé pour finaliser le paiement.",
+  "payment.benefit.secure": "Sécurisé",
+  "payment.benefit.secureDesc": "Environnement certifié et protégé.",
+  "payment.benefit.fast": "Rapide",
+  "payment.benefit.fastDesc": "Approbation en quelques secondes."
+}

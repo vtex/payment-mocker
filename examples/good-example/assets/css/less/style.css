@@ -1,0 +1,53 @@
+[data-payment-template] .payment-title {
+  font-size: 16px;
+  font-weight: bold;
+  margin: 0 0 12px;
+  color: #333;
+}
+
+[data-payment-template] .payment-description {
+  margin-bottom: 16px;
+}
+
+[data-payment-template] .payment-description-text {
+  font-size: 14px;
+  color: #666;
+  line-height: 1.5;
+}
+
+[data-payment-template] .payment-benefits {
+  list-style: none;
+  padding: 0;
+  margin: 0 0 16px;
+  display: flex;
+  gap: 12px;
+}
+
+[data-payment-template] .payment-benefit {
+  flex: 1;
+  padding: 10px;
+  background: #f9f9f9;
+  border-radius: 4px;
+}
+
+[data-payment-template] .payment-benefit-title {
+  font-size: 13px;
+  font-weight: bold;
+  margin: 0 0 4px;
+  color: #333;
+}
+
+[data-payment-template] .payment-benefit-desc {
+  font-size: 12px;
+  color: #666;
+  margin: 0;
+}
+
+[data-payment-template] .payment-logo {
+  text-align: center;
+  margin-top: 12px;
+}
+
+[data-payment-template] .payment-logo img {
+  max-height: 48px;
+}
