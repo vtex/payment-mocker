@@ -1,10 +1,10 @@
 // Rule: maxFileSize
 // Soma o tamanho de todos os arquivos enviados e falha se passar de 128KB.
 //
-// IMPORTANTE: este arquivo é uma CÓPIA do que está no
-// payment-templates-handler (Squad A). Os 2 squads precisam manter
-// as rules em sincronia — qualquer mudança aqui deve refletir lá.
-// (Discussão no cross-squad sync: extrair pra módulo compartilhado pós-dojo)
+// TODO Squad B: migrar essa rule pra @vtex/payment-template-validator
+// (packages/validator/src/rules/), pra ser consumida tanto por esta
+// CLI quanto pelo payment-templates-handler (Squad A) — fonte única
+// de verdade. Alinhar interface com Squad A no design contract.
 
 const MAX_TOTAL_BYTES = 128 * 1024; // 128KB
 
