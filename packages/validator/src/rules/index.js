@@ -3,4 +3,5 @@ module.exports = [
   require('./i18nKeyConsistency'),
   require('./htmlSafety'),
   require('./noExternalRefs'),
+  require('./requiredFiles'),
 ];

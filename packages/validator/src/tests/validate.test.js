@@ -27,15 +27,22 @@ const VALID_I18N = JSON.stringify({ 'payment.title': 'Pagamento' });
 
 // ─── US-3: validate() API (lib) ────────────────────────────────────────────
 
+// Minimal valid PNG (1x1 transparent) for icon slot
+const VALID_PNG = Buffer.from(
+  '89504e470d0a1a0a0000000d494844520000000100000001' +
+  '0800000000003a7e9b550000000a4944415408d76360000000020001e221bc330000000049454e44ae426082', 'hex'
+);
+
 test('validate() — retorna ok:true para template válido', async () => {
   const dir = makeTmpTemplate({
     'partials/payment.html': VALID_HTML,
     'i18n/pt-BR.json': VALID_I18N,
     'i18n/en-US.json': JSON.stringify({ 'payment.title': 'Payment' }),
+    'assets/img/icon.png': VALID_PNG,
   });
   const result = await validate(dir);
   assert.equal(result.ok, true);
-  assert.equal(result.errors.length, 0);
+  assert.equal(result.errors.filter(e => !e.severity || e.severity === 'error').length, 0);
 });
 
 test('validate() — retorna ok:false para template com erro de maxFileSize', async () => {
@@ -97,9 +104,9 @@ test('validate() — opts.maxFileSize sobrescreve limite padrão', async () => {
 
 // ─── US-1: CLI com template default de src/ ────────────────────────────────
 
-test('CLI — src/ do payment-mocker passa em todas as validações (exit 0)', () => {
+test('CLI — src/ do payment-mocker passa (exit 0)', () => {
   const out = execSync(`node "${CLI}" "${SRC_DIR}"`, { encoding: 'utf8' });
-  assert.match(out, /passou em todas as validações/);
+  assert.match(out, /template passou/);
 });
 
 // ─── US-2: CLI com --json ──────────────────────────────────────────────────

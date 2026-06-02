@@ -67,7 +67,8 @@ function run(templateDir, rules, opts = {}) {
       }];
     }
     const description = rule.describe ? rule.describe(template) : null;
-    return { rule: rule.ruleName, ok: errors.length === 0, errors, description };
+    const hasError = errors.some(e => !e.severity || e.severity === 'error');
+    return { rule: rule.ruleName, ok: !hasError, errors, description };
   });
 
   return { template, details, errors: details.flatMap(d => d.errors) };

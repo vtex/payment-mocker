@@ -15,6 +15,7 @@ const useJson = args.includes('--json');
 
 const GREEN  = s => `\x1b[32m${s}\x1b[0m`;
 const RED    = s => `\x1b[31m${s}\x1b[0m`;
+const YELLOW = s => `\x1b[33m${s}\x1b[0m`;
 const DIM    = s => `\x1b[2m${s}\x1b[0m`;
 
 if (!templateDir) {
@@ -38,22 +39,28 @@ validate(resolvedDir).then(({ ok, errors, details }) => {
 
   console.log(`\nValidando ${resolvedDir}...\n`);
 
+  const warnings = errors.filter(e => e.severity === 'warning');
+  const hardErrors = errors.filter(e => !e.severity || e.severity === 'error');
+
   for (const d of details) {
-    const icon = d.ok ? GREEN('✓') : RED('✗');
+    const hasHardError = d.errors.some(e => !e.severity || e.severity === 'error');
+    const hasWarning   = d.errors.some(e => e.severity === 'warning');
+    const icon = hasHardError ? RED('✗') : hasWarning ? YELLOW('⚠') : GREEN('✓');
     const desc = d.description ? DIM(`(${d.description})`) : '';
     console.log(`  ${icon} ${d.rule.padEnd(22)} ${desc}`);
-    if (!d.ok) {
-      for (const e of d.errors) {
-        console.log(`       ${RED('→')} ${e.message}`);
-      }
+    for (const e of d.errors) {
+      const arrow = e.severity === 'warning' ? YELLOW('→') : RED('→');
+      console.log(`       ${arrow} ${e.message}`);
     }
   }
 
   console.log('');
-  if (ok) {
+  if (ok && warnings.length > 0) {
+    console.log(GREEN('✓ template passou') + ` ${YELLOW(`(${warnings.length} aviso(s))`)}`);
+  } else if (ok) {
     console.log(GREEN('✓ template passou em todas as validações'));
   } else {
-    console.log(RED(`✗ ${errors.length} erro(s) encontrado(s)`));
+    console.log(RED(`✗ ${hardErrors.length} erro(s) encontrado(s)`) + (warnings.length ? ` ${YELLOW(`(${warnings.length} aviso(s))`)}` : ''));
   }
   console.log('');
 
