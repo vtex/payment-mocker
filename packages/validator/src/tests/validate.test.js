@@ -27,11 +27,17 @@ const VALID_I18N = JSON.stringify({ 'payment.title': 'Pagamento' });
 
 // ─── US-3: validate() API (lib) ────────────────────────────────────────────
 
-// Minimal valid PNG (1x1 transparent) for icon slot
-const VALID_PNG = Buffer.from(
-  '89504e470d0a1a0a0000000d494844520000000100000001' +
-  '0800000000003a7e9b550000000a4944415408d76360000000020001e221bc330000000049454e44ae426082', 'hex'
-);
+// Synthetic PNG header with 80x80 dimensions (valid for iconDimensions rule)
+function makePngBuf(w, h) {
+  const buf = Buffer.alloc(24);
+  buf.write('\x89PNG\r\n\x1a\n', 0, 'binary');
+  buf.writeUInt32BE(13, 8);
+  buf.write('IHDR', 12, 'ascii');
+  buf.writeUInt32BE(w, 16);
+  buf.writeUInt32BE(h, 20);
+  return buf;
+}
+const VALID_PNG = makePngBuf(80, 80);
 
 test('validate() — retorna ok:true para template válido', async () => {
   const dir = makeTmpTemplate({
