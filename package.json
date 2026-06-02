@@ -11,7 +11,8 @@
     "url": "http://github.com/augustocb/pink"
   },
   "scripts": {
-    "validate": "node validator/cli.js"
+    "validate": "node validator/cli.js",
+    "test": "node --test packages/validator/src/tests"
   },
   "devDependencies": {
     "connect-livereload": "^0.5.4",
