@@ -1594,6 +1594,29 @@ background-position: right center;
   padding-right: 40px;
 }
 
+#payment-group-creditCardPaymentGroup .payment-group-item-text,
+#payment-group-bankInvoicePaymentGroup .payment-group-item-text,
+#payment-group-payPalPaymentGroup .payment-group-item-text,
+#payment-group-MercadoPagoPaymentGroup .payment-group-item-text {
+  background-size: 30px auto;
+}
+
+#payment-group-creditCardPaymentGroup .payment-group-item-text {
+  background-image: url('assets/img/ico-credit2.svg');
+}
+
+#payment-group-bankInvoicePaymentGroup .payment-group-item-text {
+  background-image: url('assets/img/ico-boleto.svg');
+}
+
+#payment-group-payPalPaymentGroup .payment-group-item-text {
+  background-image: url('assets/img/ico-paypal.svg');
+}
+
+#payment-group-MercadoPagoPaymentGroup .payment-group-item-text {
+  background-image: url('assets/img/ico-mercadopago.svg');
+}
+
 #payment-group-template-PaymentGroup .payment-group-item-text {
 background-size: 30px;
 }

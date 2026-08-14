@@ -4,6 +4,7 @@
 
 'use strict';
 
+var path = require('path');
 var LIVERELOAD_PORT = 35729;
 var lrSnippet = require('connect-livereload')({
   port: LIVERELOAD_PORT
@@ -39,6 +40,13 @@ module.exports = function(grunt) {
       }
     },
     watch: {
+      validate: {
+        files: [
+          'template/**/*.{html,css,json,png,jpg,jpeg,webp}',
+          'lib/**/*.js'
+        ],
+        tasks: ['validate']
+      },
       livereload: {
         options: {
           livereload: LIVERELOAD_PORT
@@ -54,9 +62,24 @@ module.exports = function(grunt) {
     }
   });
 
+  grunt.registerTask('validate', function() {
+    var done = this.async();
+    var script = path.join(__dirname, 'scripts', 'validate-reference.js');
+    var result = require('child_process').spawnSync(process.execPath, [script], {
+      stdio: 'inherit'
+    });
+
+    if (result.status !== 0) {
+      grunt.fail.fatal('Template validation failed. Fix the bundle before previewing.');
+    }
+
+    done();
+  });
+
   grunt.registerTask('default', [
+    'validate',
     'connect',
-    'watch:livereload'
+    'watch'
   ]);
 
 };

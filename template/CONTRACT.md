@@ -99,7 +99,11 @@ Local validation is for feedback only. VTEX runs the same validator on upload be
 grunt
 ```
 
-Open [http://localhost:8080/](http://localhost:8080/). The payment step renders your bundle in an iframe with `sandbox="allow-scripts"`, applies translations from the wrapped document, resizes on content changes, and accepts locale switches via `postMessage` — matching the checkout host contract.
+Open [http://localhost:8080/](http://localhost:8080/). `grunt` runs `@vtex/payment-templates-validator` on your bundle before starting the server; fix reported errors, then preview.
+
+The payment step renders your bundle in an iframe with `sandbox="allow-scripts"`, applies translations from the wrapped document, resizes on content changes, and accepts locale switches via `postMessage` — matching the checkout host contract.
+
+Images inside the iframe may use bundle-local files or `data:` URLs on `<img src>` (including `data:image/svg+xml`). Inline SVG in CSS `url(data:…)` is not supported.
 
 Configure `bundleDir`, `defaultLocale`, optional `icon`, and optional `displayName` in [`preview.config.json`](./preview.config.json).
 

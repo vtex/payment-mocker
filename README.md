@@ -17,13 +17,17 @@ npm i
 grunt
 ```
 
+`grunt` validates the configured bundle first, then starts the dev server. Fix validation errors before previewing.
+
 Open [http://localhost:8080/](http://localhost:8080/).
 
-Validate before submitting:
+Re-run validation manually:
 
 ```bash
 npm run validate:reference
 ```
+
+While the dev server runs, saving files under `template/` or `lib/` triggers validation again via Grunt watch.
 
 ## Template contract
 
