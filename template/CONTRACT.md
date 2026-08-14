@@ -15,7 +15,7 @@ A template is a flat folder of files. Use the exact names below.
 | `asset-*` | No | Raster images (PNG, JPEG, or WebP) referenced from HTML or CSS. Name every file `asset-<label>.<ext>`. |
 | `i18n-{locale}.json` | Yes (≥1) | Flat or nested JSON map of translation keys per locale. File name must use a full language–region tag (`xx-XX`), e.g. `i18n-pt-BR.json`, `i18n-en-US.json`. Language-only tags such as `i18n-pt.json` are rejected. |
 | `defaultLocale` | Yes | Upload field (not a file) naming the fallback locale. Must match one of your `i18n-{locale}.json` files. When the shopper locale has no exact match, checkout resolves to this locale. |
-| `icon` | No | Method icon shown in the payment list. PNG, JPEG, or WebP only. Max **50 KB**. Fits a **160×160 px** box; smallest side ≥ **60 px**. Stored separately from the versioned bundle. |
+| `icon` | No | Method icon shown in the payment list. PNG, JPEG, or WebP only. Max **50 KB**. Fits a **160×160 px** box; smallest side ≥ **60 px**. Stored separately from the versioned bundle. In local preview, place the file in your bundle folder (e.g. `icon.png`). Do **not** use the `asset-*` prefix unless the same file is referenced from `index.html` or `style.css`. |
 | `displayName-{locale}` | No | Plain-text label for the payment method in the list, one field per locale (e.g. `displayName-pt-BR`). Rendered as text, never HTML. Max **90** Unicode code points. No control or bidi override characters. |
 
 ## Internationalization
@@ -86,10 +86,31 @@ Images are verified by file content (magic bytes), not by extension. SVG **files
 Install dependencies from the repository root, then run:
 
 ```bash
-npm run validate:reference
+npm run validate
 ```
 
-This runs `@vtex/payment-templates-validator` against the bundle configured in `template/preview.config.json`. A passing run prints `ok: true`.
+This runs `@vtex/payment-templates-validator` against the bundle, icon, and `displayName` configured in `template/preview.config.json`. Output uses the same `{ ok, errors }` model as upload validation:
+
+| Field | Meaning |
+| --- | --- |
+| `ok` | `true` when no finding has `severity: "error"` |
+| `errors[]` | All findings (errors and warnings), each with `rule`, `severity`, `message`, and optional `ref` (`file`, `line`, `column`) |
+
+Passing run:
+
+```
+validate: ok — template at template/reference
+```
+
+Failed run:
+
+```
+validate: failed (1 error)
+
+  [error] htmlSafety index.html:2:1 — Forbidden tag <script> in index.html
+```
+
+For CI, use `npm run validate -- --json` to print the raw result object.
 
 Local validation is for feedback only. VTEX runs the same validator on upload before anything is published.
 
@@ -113,7 +134,7 @@ Example:
 {
   "bundleDir": "reference",
   "defaultLocale": "pt-BR",
-  "icon": "asset-logo.png",
+  "icon": "icon.png",
   "displayName": {
     "pt-BR": "Example Pay",
     "en-US": "Example Pay"

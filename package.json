@@ -9,6 +9,7 @@
     "url": "https://github.com/vtex/payment-mocker"
   },
   "scripts": {
+    "validate": "node scripts/validate.js",
     "validate:reference": "node scripts/validate-reference.js",
     "generate:assets": "node scripts/write-png.js"
   },

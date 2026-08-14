@@ -1626,6 +1626,41 @@ overflow: visible;
   min-height: 0;
 }
 
+.payment-template-validation-banner {
+  background: #f2dede;
+  border: 1px solid #ebccd1;
+  border-radius: 4px;
+  color: #a94442;
+  font-size: 13px;
+  line-height: 1.4;
+  margin: 0 0 16px;
+  padding: 10px 12px;
+  position: sticky;
+  top: 0;
+  z-index: 1000;
+}
+
+.payment-template-validation-banner.is-unavailable {
+  background: #f5f5f5;
+  border-color: #cccccc;
+  color: #666666;
+}
+
+.payment-template-validation-banner.has-warnings {
+  background: #fcf8e3;
+  border-color: #faebcc;
+  color: #8a6d3b;
+}
+
+.payment-template-validation-banner ul {
+  margin: 8px 0 0;
+  padding-left: 18px;
+}
+
+.payment-template-validation-banner li {
+  margin: 4px 0;
+}
+
 .payment-template-frame {
 border: 0;
   display: block;
