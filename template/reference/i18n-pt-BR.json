@@ -1,0 +1,14 @@
+{
+  "pay": {
+    "title": "Example Pay",
+    "lead": "Ao finalizar a compra, você será redirecionado(a) para concluir o pagamento.",
+    "benefitGuaranteedTitle": "Guarantido",
+    "benefitGuaranteedText": "Ambiente de pagamento certificado.",
+    "benefitSecureTitle": "Seguro",
+    "benefitSecureText": "Sem necessidade de cadastro e sem armazenamento dos seus dados financeiros.",
+    "benefitFastTitle": "Rápido",
+    "benefitFastText": "Autorize no app do banco e conclua a compra.",
+    "fallbackNote": "Se o idioma da loja não tiver tradução, o checkout usa pt-BR (defaultLocale deste template).",
+    "help": "Dúvidas? Escreva para support@example.com"
+  }
+}
