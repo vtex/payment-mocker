@@ -17,17 +17,31 @@ npm i
 grunt
 ```
 
-`grunt` validates the configured bundle first, then starts the dev server. Fix validation errors before previewing.
+`grunt` validates the configured bundle first, then starts the dev server. Validation errors are shown in the page banner and in the terminal; the server still starts so you can preview while fixing issues.
+
+For a strict check (CI or pre-commit), use `npm run validate`.
 
 Open [http://localhost:8080/](http://localhost:8080/).
 
 Re-run validation manually:
 
 ```bash
-npm run validate:reference
+npm run validate
 ```
 
-While the dev server runs, saving files under `template/` or `lib/` triggers validation again via Grunt watch.
+Machine-readable output (same `{ ok, errors }` shape as upload validation):
+
+```bash
+npm run validate -- --json
+```
+
+Each finding includes `rule`, `severity` (`error` or `warning`), `message`, and optional `ref` (`file`, `line`, `column`). Example console line:
+
+```
+  [error] htmlSafety index.html:2:1 — Forbidden tag <script> in index.html
+```
+
+While the dev server runs, saving files under `template/` or `lib/` triggers validation again via Grunt watch. The checkout shell also loads `/validation.json` and shows findings above the template iframe.
 
 ## Template contract
 

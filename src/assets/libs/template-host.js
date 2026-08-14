@@ -1,5 +1,6 @@
 (function () {
   var PREVIEW_CONFIG_URL = '/preview.config.json';
+  var VALIDATION_URL = '/validation.json';
   var IFRAME_SRC = '/template-bundle/index.html';
   var BUNDLE_PREFIX = '/template-bundle/';
   var MAX_HEIGHT = 2000;
@@ -7,11 +8,120 @@
 
   var iframe = document.getElementById('payment-template-iframe');
   var paymentGroupLabel = document.getElementById('payment-template-group-label');
+  var validationBanner = document.getElementById('payment-template-validation-banner');
   var languageButtons = Array.prototype.slice.call(document.getElementsByClassName('language'));
 
   var previewConfig = null;
   var currentLocale = null;
   var measureTimer = null;
+  var validationTimer = null;
+  var lastValidationSignature = null;
+
+  function formatFindingRef(ref) {
+    if (!ref || !ref.file) return '';
+    if (ref.line == null) return ref.file;
+    if (ref.column == null) return ref.file + ':' + ref.line;
+    return ref.file + ':' + ref.line + ':' + ref.column;
+  }
+
+  function formatFinding(finding) {
+    var location = formatFindingRef(finding.ref);
+    var prefix = '[' + finding.severity + '] ' + finding.rule;
+    if (location) prefix += ' ' + location;
+    return prefix + ' — ' + finding.message;
+  }
+
+  function renderValidationBanner(result) {
+    if (!validationBanner) return;
+
+    if (!result || !Array.isArray(result.errors)) {
+      validationBanner.className = 'payment-template-validation-banner is-unavailable';
+      validationBanner.innerHTML = '<strong>Validation unavailable.</strong> Restart the dev server (<code>grunt</code>) so <code>/validation.json</code> is served.';
+      return;
+    }
+
+    var errors = result.errors.filter(function (finding) {
+      return finding.severity === 'error';
+    });
+    var warnings = result.errors.filter(function (finding) {
+      return finding.severity === 'warning';
+    });
+
+    if (result.ok && warnings.length === 0) {
+      validationBanner.className = 'payment-template-validation-banner hide';
+      validationBanner.innerHTML = '';
+      return;
+    }
+
+    var title = result.ok
+      ? 'Validation passed with ' + warnings.length + ' warning' + (warnings.length === 1 ? '' : 's') + '.'
+      : 'Validation failed with ' + errors.length + ' error' + (errors.length === 1 ? '' : 's') + '.';
+
+    var items = result.errors.map(function (finding) {
+      return '<li>' + formatFinding(finding) + '</li>';
+    }).join('');
+
+    validationBanner.className = 'payment-template-validation-banner' + (result.ok ? ' has-warnings' : '');
+    validationBanner.innerHTML = '<strong>' + title + '</strong><ul>' + items + '</ul>';
+  }
+
+  function validationSignature(result) {
+    return JSON.stringify(result);
+  }
+
+  function reloadIframePreview() {
+    if (!iframe) return;
+    appliedHeight = 0;
+    iframe.src = IFRAME_SRC + '?' + Date.now();
+  }
+
+  function applyValidationResult(result, options) {
+    options = options || {};
+    var signature = validationSignature(result);
+    renderValidationBanner(result);
+
+    if (options.initial) {
+      lastValidationSignature = signature;
+      return;
+    }
+
+    if (signature === lastValidationSignature) {
+      return;
+    }
+
+    lastValidationSignature = signature;
+    reloadIframePreview();
+  }
+
+  function loadValidationResult(options, callback) {
+    var request = new XMLHttpRequest();
+    request.open('GET', VALIDATION_URL + '?t=' + Date.now(), true);
+    request.onload = function () {
+      if (request.status >= 200 && request.status < 300) {
+        try {
+          applyValidationResult(JSON.parse(request.responseText), options);
+        } catch (error) {
+          renderValidationBanner(null);
+        }
+      } else {
+        renderValidationBanner(null);
+      }
+      if (callback) callback();
+    };
+    request.onerror = function () {
+      renderValidationBanner(null);
+      if (callback) callback();
+    };
+    request.send();
+  }
+
+  function startValidationPolling() {
+    loadValidationResult({ initial: true }, function () {});
+    if (validationTimer) clearInterval(validationTimer);
+    validationTimer = setInterval(function () {
+      loadValidationResult({}, function () {});
+    }, 1500);
+  }
 
   function clampHeight(value) {
     return Math.max(MIN_HEIGHT, Math.min(MAX_HEIGHT, value));
@@ -124,6 +234,7 @@
     loadPreviewConfig(function () {
       var initialLocale = previewConfig && previewConfig.defaultLocale ? previewConfig.defaultLocale : 'pt-BR';
       applyPaymentGroupIcon();
+      startValidationPolling();
 
       iframe.addEventListener('load', function onLoad() {
         iframe.removeEventListener('load', onLoad);

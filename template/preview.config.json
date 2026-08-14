@@ -1,7 +1,7 @@
 {
   "bundleDir": "reference",
   "defaultLocale": "pt-BR",
-  "icon": "asset-logo.png",
+  "icon": "icon.jpg",
   "displayName": {
     "pt-BR": "Example Pay",
     "en-US": "Example Pay"
