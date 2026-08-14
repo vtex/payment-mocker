@@ -40,6 +40,11 @@
   background-size: 42px auto;
 }
 
+.pay__benefit--guaranteed {
+  background-image: url(asset-badge.png);
+  background-position: 12px 12px;
+}
+
 .pay__benefit--secure {
   background-image: url(asset-badge.png);
   background-position: 12px -96px;
