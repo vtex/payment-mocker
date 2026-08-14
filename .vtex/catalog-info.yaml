@@ -2,7 +2,7 @@ apiVersion: backstage.io/v1alpha1
 kind: Component
 metadata:
   name: payment-mocker
-  description: Boilerplate para desenvolver e testar Payment Methods do Smart Checkout.
+  description: Boilerplate for developing and testing Smart Checkout Payment Methods.
   tags:
     - javascript
     - grunt
