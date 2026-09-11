@@ -1635,6 +1635,17 @@ border: 0;
   vertical-align: top;
 }
 
+/* `.payment-submit-hide` parks the step's submit paragraph offscreen with
+   position:absolute, but `.payment-data p.submit` in the max-width:767px block
+   below outranks it and returns the paragraph to the flow with a 10px top
+   margin. Invisible, it still took 18px under the template iframe on narrow
+   screens, which read as the iframe failing to shrink. This restores what the
+   class already declares. */
+.steps-view--payment-template p.submit.payment-submit-hide {
+  position: absolute;
+  margin: 0;
+}
+
 .link-gift-card {
 left: 25px;
   margin-top: 5px;
