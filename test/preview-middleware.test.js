@@ -15,6 +15,7 @@ const {
   PREVIEW_CONFIG_PATH,
   TEMPLATE_VALIDATION_PATH,
   RESOLVE_LOCALE_SCRIPT_PATH,
+  TEMPLATE_RUNTIME_SCRIPT_PATH,
 } = require('../lib/preview-middleware');
 const { configPathFor, readPreviewConfig } = require('../lib/preview-config');
 
@@ -701,6 +702,30 @@ test('createPreviewMiddleware (resolve-locale script route): GET serves the real
   assert.equal(res.statusCode, 200);
   assert.equal(res.headers['Content-Type'], 'application/javascript; charset=utf-8');
   assert.match(res.body(), /function resolveLocale/);
+});
+
+test('createPreviewMiddleware (template-runtime script route): a non-GET/HEAD method responds 405', async () => {
+  const res = await invokeMiddleware({
+    url: TEMPLATE_RUNTIME_SCRIPT_PATH,
+    headers: { host: 'localhost:8080' },
+    method: 'PUT',
+  });
+  assert.equal(res.statusCode, 405);
+  assert.equal(res.headers['Allow'], 'GET, HEAD');
+});
+
+test('createPreviewMiddleware (template-runtime script route): GET serves the real lib/template-runtime.js file, byte for byte', async () => {
+  // Same reasoning as the resolve-locale route test above: a status-code-only
+  // assertion would pass on an empty body or the wrong file. This route is
+  // what vcs.checkout-ui vendors from, so compare against the file on disk.
+  const res = await invokeMiddleware({
+    url: TEMPLATE_RUNTIME_SCRIPT_PATH,
+    headers: { host: 'localhost:8080' },
+  });
+  assert.equal(res.statusCode, 200);
+  assert.equal(res.headers['Content-Type'], 'application/javascript; charset=utf-8');
+  const onDisk = fs.readFileSync(path.join(__dirname, '..', 'lib', 'template-runtime.js'), 'utf8');
+  assert.equal(res.body(), onDisk);
 });
 
 test('createPreviewMiddleware: a non-GET/HEAD method on a URL this middleware does not own is passed through to next(), not 405\'d', async () => {
