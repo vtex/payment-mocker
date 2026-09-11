@@ -356,12 +356,12 @@ test('createPreviewMiddleware: a dotfile nested in a dot-directory inside the bu
   // a dotfile at the top level — the guard must reject on ANY path segment
   // starting with `.`, not only the last one.
   const config = readPreviewConfig(tempTemplateRoot);
-  const dotDirPath = path.join(config.bundlePath, '.git');
+  const dotDirPath = path.join(config.bundlePath, '.hidden');
   const dotfilePath = path.join(dotDirPath, 'config');
   fs.mkdirSync(dotDirPath, { recursive: true });
-  fs.writeFileSync(dotfilePath, '[core]\n\trepositoryformatversion = 0\n');
+  fs.writeFileSync(dotfilePath, 'value\n');
   try {
-    const res = await invokeMiddleware(makeReq('.git/config'));
+    const res = await invokeMiddleware(makeReq('.hidden/config'));
     assert.equal(res.statusCode, 404);
     assert.equal(res.body(), 'Not Found');
   } finally {
