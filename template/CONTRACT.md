@@ -72,6 +72,38 @@ Forbidden in all cases:
 - Every `asset-*` file you submit must be referenced at least once in HTML or CSS.
 - Do not define selectors for classes that are never used in the markup.
 
+## Responsive layout
+
+Use `@media`. Your template is self-contained: it gets no layout signal from checkout and needs none.
+
+Because the template renders in a sandboxed iframe, a width query measures **that iframe** rather than the shopper's screen. This is the useful measurement — it is the box checkout granted you, and the only width your layout depends on. It updates as the box does, so the queries stay correct on resize and on rotation.
+
+Pick thresholds by the width at which **your own content stops fitting**, not by copying checkout's breakpoints. Checkout splits on the shopper's viewport at 768 px; that number means nothing inside your iframe. For reference, the widths checkout currently grants a template are:
+
+| Shopper viewport | Width your template receives |
+| --- | --- |
+| ≥ 980 px | 409 px |
+| 768–979 px | 462 px |
+| < 768 px | fills the column — about 306 px on a 390 px phone |
+
+Note the middle row: a phone held sideways gives your template *more* room than a desktop does. Width is not a proxy for device, so do not treat it as one — lay out for the space, and both cases land somewhere sensible.
+
+```css
+/* Side by side while both columns fit, stacked once they do not. */
+.pay__benefits {
+  display: flex;
+  gap: 12px;
+}
+
+@media (max-width: 379px) {
+  .pay__benefits {
+    display: block;
+  }
+}
+```
+
+Only the dimensional media features (`width`, `height`, `aspect-ratio`, `orientation`) are scoped to the iframe. Everything describing the device or the shopper's preferences reaches you unchanged, so `@media (pointer: coarse)`, `(prefers-reduced-motion)` and `(prefers-color-scheme)` all work as they would on a top-level page.
+
 ## Size and type limits
 
 | Item | Limit |
