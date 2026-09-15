@@ -235,6 +235,8 @@ test('the runtime resolves same-language ties in an isolated scope', () => {
  */
 
 const CONTAINER_SELECTOR = '[data-payment-template-root]';
+const I18N_SELECTOR = '[data-payment-template-i18n]';
+const STYLESHEET_SELECTOR = 'link[rel="stylesheet"]';
 
 function makeBox(height) {
   return {
@@ -259,6 +261,8 @@ function makeBox(height) {
 function bootRuntime(options) {
   const opts = options || {};
   const container = 'container' in opts ? opts.container : makeBox(0);
+  const i18nNode = 'i18nNode' in opts ? opts.i18nNode : null;
+  const stylesheetLink = 'stylesheetLink' in opts ? opts.stylesheetLink : null;
   const bodyStub = Object.assign(makeBox('bodyHeight' in opts ? opts.bodyHeight : 0), {
     firstElementChild: container,
   });
@@ -270,7 +274,12 @@ function bootRuntime(options) {
     body: bodyStub,
     images: [],
     querySelector: function (selector) {
-      return selector === CONTAINER_SELECTOR ? container : null;
+      if (selector === CONTAINER_SELECTOR) return container;
+      // Both default to absent, which is what every pre-existing test assumed
+      // when this stub returned null for anything but the container.
+      if (selector === I18N_SELECTOR) return i18nNode;
+      if (selector === STYLESHEET_SELECTOR) return stylesheetLink;
+      return null;
     },
     querySelectorAll: function () {
       return [];
@@ -278,8 +287,18 @@ function bootRuntime(options) {
   };
 
   const postedHeights = [];
+  const postedDiagnostics = [];
+  const postedMessages = [];
   const fakeParent = {
+    // The runtime posts two kinds of message to the host. Keep them apart:
+    // folding diagnostics into postedHeights would push an undefined height
+    // and break every assertion that checks what was measured.
     postMessage: function (data) {
+      postedMessages.push(data);
+      if (data && data.type === 'payment-template:diagnostic') {
+        postedDiagnostics.push(data.code);
+        return;
+      }
       postedHeights.push(data.height);
     },
   };
@@ -321,6 +340,8 @@ function bootRuntime(options) {
     bodyStub: bodyStub,
     documentElementStub: documentElementStub,
     postedHeights: postedHeights,
+    postedDiagnostics: postedDiagnostics,
+    postedMessages: postedMessages,
     observed: observed,
     errors: errors,
     measure: function () {
@@ -418,4 +439,68 @@ test('the runtime file is a plain browser script, vendorable byte for byte', () 
     source.includes('[data-payment-template-i18n]'),
     'the runtime must read the i18n payload by its stable data attribute'
   );
+});
+
+// --- Diagnostics: iframe -> host ------------------------------------------
+//
+// Three failures are invisible from outside the frame: the stylesheet not
+// applying, the container being absent, and an unparseable i18n payload. The
+// runtime reports each once, by code only. The host validates the code against
+// its own allowlist, so the payload must never carry partner-derived text.
+
+test('a missing container reports the containerMissing diagnostic exactly once', () => {
+  const runtime = bootRuntime({ container: null, bodyHeight: 500 });
+
+  runtime.measure();
+  runtime.measure();
+
+  assert.deepEqual(runtime.postedDiagnostics, ['containerMissing']);
+});
+
+test('a stylesheet that did not apply reports stylesheetNotApplied exactly once', () => {
+  const runtime = bootRuntime({
+    stylesheetLink: { href: 'https://example.test/style.css', sheet: null },
+  });
+
+  assert.deepEqual(runtime.postedDiagnostics, ['stylesheetNotApplied']);
+});
+
+test('a stylesheet that applied reports nothing', () => {
+  // A cross-origin sheet that loaded still exposes the CSSStyleSheet object;
+  // only reading cssRules is restricted. A non-null `sheet` means it applied.
+  const runtime = bootRuntime({
+    stylesheetLink: { href: 'https://example.test/style.css', sheet: {} },
+  });
+
+  assert.deepEqual(runtime.postedDiagnostics, []);
+});
+
+test('a malformed i18n payload reports i18nPayloadInvalid instead of killing boot', () => {
+  // Before the try/catch this threw out of boot(): no height was ever posted,
+  // the handshake never completed, and the host only degraded to the static
+  // method after the full load timeout.
+  const runtime = bootRuntime({ i18nNode: { textContent: '{ not json' } });
+
+  assert.deepEqual(runtime.postedDiagnostics, ['i18nPayloadInvalid']);
+  assert.ok(runtime.postedHeights.length > 0, 'boot() must survive and still post a height');
+});
+
+test('the diagnostic payload carries a code and nothing else', () => {
+  // The host must never be handed partner-controlled text. A JSON parse error
+  // quotes the input that failed, and that input is partner content.
+  const runtime = bootRuntime({ i18nNode: { textContent: '{ "oops": ' } });
+
+  assert.ok(runtime.postedDiagnostics.length > 0, 'the malformed payload must be reported');
+  const message = runtime.postedMessages.find(
+    (data) => data && data.type === 'payment-template:diagnostic'
+  );
+  assert.deepEqual(Object.keys(message).sort(), ['code', 'type']);
+  assert.equal(typeof message.code, 'string');
+});
+
+test('the runtime never reports partner-derived text with a diagnostic', () => {
+  const source = readLibScript('template-runtime.js');
+  const report = source.slice(source.indexOf('function reportDiagnostic'));
+  const body = report.slice(0, report.indexOf('\n  }'));
+  assert.ok(!/e\.message|textContent|innerHTML|link\.href/.test(body), 'reportDiagnostic must forward the code alone');
 });
