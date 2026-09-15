@@ -57,3 +57,41 @@ test('readPreviewConfig: a bundleDir that actually escapes a symlinked templateR
   // not) must still be rejected.
   assert.throws(() => readPreviewConfig(tempLink), /bundleDir must stay inside template\//);
 });
+
+function writeConfig(themeTokens) {
+  fs.writeFileSync(
+    configPathFor(tempLink),
+    JSON.stringify({ bundleDir: 'missing-bundle', defaultLocale: 'pt-BR', themeTokens })
+  );
+}
+
+test('readPreviewConfig: an unknown themeTokens name is reported instead of silently ignored', () => {
+  // buildThemeTokenStyle ignores unknown names, which is right at runtime where
+  // values arrive from a merchant's stylesheet. In a config file a partner typed
+  // by hand, a silently ignored token looks exactly like a broken feature, so
+  // the preview names the mistake and lists what it does accept.
+  writeConfig({ '--checkout-font-familly': 'Roboto, sans-serif' });
+  assert.throws(
+    () => readPreviewConfig(tempLink),
+    /themeTokens has unknown token --checkout-font-familly\. Supported: --checkout-font-family, --checkout-border-radius\./
+  );
+});
+
+test('readPreviewConfig: themeTokens must be an object of strings', () => {
+  writeConfig('--checkout-font-family: Roboto');
+  assert.throws(() => readPreviewConfig(tempLink), /themeTokens must be an object/);
+
+  writeConfig(['--checkout-font-family']);
+  assert.throws(() => readPreviewConfig(tempLink), /themeTokens must be an object/);
+
+  writeConfig({ '--checkout-border-radius': 8 });
+  assert.throws(() => readPreviewConfig(tempLink), /themeTokens values must be strings/);
+});
+
+test('readPreviewConfig: valid themeTokens pass the config gate and leave validation to the sanitizers', () => {
+  // Reaching the (unrelated) missing-i18n error proves themeTokens was accepted.
+  // Shape is all this gate checks — whether a VALUE is safe to interpolate is
+  // buildThemeTokenStyle's job, and it drops per token rather than throwing.
+  writeConfig({ '--checkout-font-family': 'Georgia, serif', '--checkout-border-radius': '12px' });
+  assert.throws(() => readPreviewConfig(tempLink), /defaultLocale has no matching i18n-pt-BR\.json/);
+});

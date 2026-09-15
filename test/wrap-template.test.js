@@ -220,3 +220,63 @@ test('wrapTemplate rejects an origin containing a double quote even without othe
   assert.ok(!html.includes('onmouseover'));
   assert.ok(html.includes("style-src 'self'"));
 });
+
+function containerTagOf(html) {
+  return html.match(/<div id="template-root"[^>]*>/)[0];
+}
+
+test('wrapTemplate declares the theming tokens on the container the fragment lives in', () => {
+  // The container, so the whole fragment inherits them and any selector in the
+  // partner's style.css can read them through var().
+  const html = wrapTemplate(makeBundle(), 'en-US', 'http://localhost:8080', {
+    '--checkout-font-family': 'Roboto, sans-serif',
+    '--checkout-border-radius': '3px',
+  });
+  assert.equal(
+    containerTagOf(html),
+    '<div id="template-root" data-payment-template-root ' +
+      'style="display:flow-root;--checkout-font-family:Roboto, sans-serif;--checkout-border-radius:3px">'
+  );
+  // `flow-root` is the height fix and must survive the append untouched.
+  assert.match(containerTagOf(html), /style="display:flow-root[;"]/);
+});
+
+test('wrapTemplate emits no theming declarations when the preview configures none', () => {
+  // Byte-identical to a document built before tokens existed: absent tokens are
+  // the normal case (a store that never customized has nothing to forward), so
+  // they must not leave a trace in the markup.
+  const withoutTokens = wrapTemplate(makeBundle(), 'en-US', 'http://localhost:8080');
+  assert.equal(
+    containerTagOf(withoutTokens),
+    '<div id="template-root" data-payment-template-root style="display:flow-root">'
+  );
+  assert.ok(!withoutTokens.includes('--checkout-'));
+  assert.equal(wrapTemplate(makeBundle(), 'en-US', 'http://localhost:8080', {}), withoutTokens);
+});
+
+test('wrapTemplate drops a hostile token value rather than interpolating it into the style attribute', () => {
+  // A token value originates from a merchant stylesheet in production, so it is
+  // never trusted. Dropping (not throwing) is deliberate: the template still
+  // renders, on its own fallback.
+  const html = wrapTemplate(makeBundle(), 'en-US', 'http://localhost:8080', {
+    '--checkout-font-family': 'Roboto" onmouseover="alert(1)',
+    '--checkout-border-radius': '4px;position:fixed',
+  });
+  assert.equal(
+    containerTagOf(html),
+    '<div id="template-root" data-payment-template-root style="display:flow-root">'
+  );
+  assert.ok(!html.includes('onmouseover'));
+  assert.ok(!html.includes('position:fixed'));
+});
+
+test('wrapTemplate forwards a font stack containing the quotes getComputedStyle emits', () => {
+  // The most common real value. It must arrive usable, and with no bare `"`
+  // that could close the style attribute.
+  const html = wrapTemplate(makeBundle(), 'en-US', 'http://localhost:8080', {
+    '--checkout-font-family': '"Helvetica Neue", Helvetica, Arial, sans-serif',
+  });
+  const tag = containerTagOf(html);
+  assert.ok(tag.includes("--checkout-font-family:'Helvetica Neue', Helvetica, Arial, sans-serif"));
+  assert.equal(tag.match(/"/g).length, 4, 'only the id and style attribute delimiters may be double quotes');
+});
