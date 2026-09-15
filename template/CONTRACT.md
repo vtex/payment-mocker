@@ -104,6 +104,49 @@ Note the middle row: a phone held sideways gives your template *more* room than 
 
 Only the dimensional media features (`width`, `height`, `aspect-ratio`, `orientation`) are scoped to the iframe. Everything describing the device or the shopper's preferences reaches you unchanged, so `@media (pointer: coarse)`, `(prefers-reduced-motion)` and `(prefers-color-scheme)` all work as they would on a top-level page.
 
+## Theming tokens
+
+Your template renders in a sandboxed iframe with its own origin, so it inherits nothing from the store's page — not typography, not colors. Checkout closes part of that gap by declaring two CSS custom properties on the container that wraps your markup:
+
+| Token | Carries | Derived in checkout from |
+| --- | --- | --- |
+| `--checkout-font-family` | A font stack, e.g. `Roboto, sans-serif` | The computed `font-family` of the payment step, which is what a non-iframed template would have inherited |
+| `--checkout-border-radius` | A single length, e.g. `3px` | The computed corner radius of the payment method buttons |
+
+**Always read them through `var()` with a fallback.** Either token may be absent — a store that never customized its checkout has nothing to forward, and checkout drops any value it cannot validate. The fallback is what keeps your template whole in that case, so make it the value your own design calls for:
+
+```css
+.pay {
+  font-family: var(--checkout-font-family, sans-serif);
+}
+
+.pay__logo {
+  border-radius: var(--checkout-border-radius, 0);
+}
+```
+
+The properties are declared on your container, so they are visible to every selector in `style.css`. Checkout only declares them — it never applies `font-family` or `border-radius` to your markup itself. Which properties consume a token, and where, stays your decision.
+
+Two limits worth knowing before you rely on them:
+
+- **`--checkout-font-family` delivers a name, not a font file.** The document's `Content-Security-Policy` is `default-src 'none'`, and your bundle may not reference external URLs, so `@font-face` cannot load inside the iframe. A forwarded family renders only where it is already installed on the shopper's device. Keep a generic family (`sans-serif`) at the end of your fallback stack and design so either outcome looks right.
+- **There is no color token, by design.** Your template is the payment method's own surface, and its brand colors are yours to set. A store-driven color would also produce contrast pairings you never tested.
+
+To exercise the tokenized branch locally, add a `themeTokens` object to [`preview.config.json`](./preview.config.json). Only the two names above are accepted; anything else is reported as an error so a typo does not look like a broken feature.
+
+```json
+{
+  "bundleDir": "reference",
+  "defaultLocale": "pt-BR",
+  "themeTokens": {
+    "--checkout-font-family": "Georgia, serif",
+    "--checkout-border-radius": "12px"
+  }
+}
+```
+
+Remove the object (or individual keys) to check how your template looks with its own fallbacks. Both states ship to real stores, so both deserve a look.
+
 ## Size and type limits
 
 | Item | Limit |
@@ -143,7 +186,7 @@ The payment step renders your bundle in an iframe with `sandbox="allow-scripts"`
 
 Images inside the iframe may use bundle-local files. Inline SVG in CSS `url(data:…)` is not supported.
 
-Configure `bundleDir`, `defaultLocale`, optional `icon`, and optional `displayName` in [`preview.config.json`](./preview.config.json).
+Configure `bundleDir`, `defaultLocale`, optional `icon`, optional `displayName`, and optional `themeTokens` (see "Theming tokens" above) in [`preview.config.json`](./preview.config.json).
 
 Example:
 
@@ -176,7 +219,7 @@ Do not rename `index.html` or `style.css`. Keep asset names stable and reference
 The [`reference/`](./reference/) directory contains:
 
 - `index.html` with `data-i18n` on all user-visible strings
-- `style.css` with bundle-local asset references
+- `style.css` with bundle-local asset references, and both theming tokens read through `var()` with fallbacks
 - `asset-logo.png` and `asset-badge.png`
 - `i18n-pt-BR.json` and `i18n-en-US.json` with matching keys
 - `defaultLocale = pt-BR` (set in `preview.config.json` and documented above)

@@ -1,6 +1,9 @@
 .pay {
   display: block;
-  font-family: sans-serif;
+  /* Theming token, always with a fallback: checkout may forward the store's
+     typography, and the fallback is what keeps this template whole when it
+     does not. See "Theming tokens" in ../CONTRACT.md. */
+  font-family: var(--checkout-font-family, sans-serif);
   color: #333333;
 }
 
@@ -14,6 +17,7 @@
 .pay__logo {
   width: 48px;
   height: 48px;
+  border-radius: var(--checkout-border-radius, 0);
 }
 
 .pay__title {
