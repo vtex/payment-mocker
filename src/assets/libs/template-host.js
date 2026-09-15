@@ -85,10 +85,26 @@
     iframe.style.height = next + 'px';
   }
 
+  var DIAGNOSTIC_MESSAGE_TYPE = 'payment-template:diagnostic';
+  // The host's own copy of the closed set lib/template-runtime.js reports (see
+  // "Diagnostics" there): a code missing from this list is dropped, never
+  // trusted or displayed, so adding one on the runtime side is a no-op here
+  // until both sides are updated.
+  var DIAGNOSTIC_CODES = ['stylesheetNotApplied', 'containerMissing', 'i18nPayloadInvalid'];
+
   function onMessage(event) {
     if (!iframe) return;
     if (event.source !== iframe.contentWindow) return;
     var data = event.data;
+    // Diagnostics carry no `height`, so they have to be taken before the
+    // height filter below — which otherwise dropped the entire diagnostic
+    // channel on the floor.
+    if (data && data.type === DIAGNOSTIC_MESSAGE_TYPE) {
+      if (DIAGNOSTIC_CODES.indexOf(data.code) !== -1) {
+        console.warn('[payment-template] diagnostic: ' + data.code);
+      }
+      return;
+    }
     if (!data || typeof data.height !== 'number') return;
     applyIframeHeight(data.height);
   }

@@ -68,8 +68,16 @@ module.exports = function(grunt) {
       stdio: 'inherit'
     });
 
+    // Never fatal: grunt.fail.fatal kills the whole process before `connect`
+    // and `watch` ever run, so an invalid bundle meant no server at all —
+    // no preview and no error banner either. The same task is re-run by
+    // watch on every save, so it would also tear down an already-running
+    // server the moment a file was saved mid-edit. The browser-facing
+    // /template-validation.json + banner (lib/preview-middleware.js,
+    // src/assets/libs/template-host.js) is the dev-facing report of these
+    // findings, and it is deliberately non-blocking; this task only logs.
     if (result.status !== 0) {
-      grunt.fail.fatal('Template validation failed. Fix the bundle before previewing.');
+      grunt.log.error('Template validation failed. The preview will still start; fix the bundle to clear the banner.');
     }
 
     done();

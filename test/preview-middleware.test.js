@@ -351,6 +351,33 @@ test('createPreviewMiddleware: a dotfile inside the bundle responds 404 even tho
   }
 });
 
+test('createPreviewMiddleware: a bundle file whose name is outside the template contract responds 404 even though it exists and is contained', async () => {
+  // Containment says where a file may live, never what it may be called. This
+  // route never consults lib/load-bundle.js for the individual file it is
+  // about to stream, so before the fix a stray `evil.html` physically present
+  // in the bundle dir was served raw as text/html — at the preview server's
+  // own origin, outside the sandbox the wrapped index.html runs in.
+  const config = readPreviewConfig(tempTemplateRoot);
+  const strayPath = path.join(config.bundlePath, 'evil.html');
+  fs.writeFileSync(strayPath, '<script>document.title = "pwned"</script>');
+  try {
+    const res = await invokeMiddleware(makeReq('evil.html'));
+    assert.equal(res.statusCode, 404);
+    assert.equal(res.body(), 'Not Found');
+    assert.ok(!res.body().includes('pwned'), 'the file contents must never be streamed');
+  } finally {
+    fs.rmSync(strayPath, { force: true });
+  }
+});
+
+test('createPreviewMiddleware: a contract-shaped asset inside the bundle is still served', async () => {
+  // The other half of the filename check above: it must reject only names
+  // outside the contract, not the assets the template legitimately references.
+  const res = await invokeMiddleware(makeReq('asset-logo.png'));
+  assert.equal(res.statusCode, 200);
+  assert.equal(res.headers['Content-Type'], 'image/png');
+});
+
 test('createPreviewMiddleware: a dotfile nested in a dot-directory inside the bundle responds 404', async () => {
   // Covers a dotfile inside a dot-*directory* (e.g. `.git/config`), not just
   // a dotfile at the top level — the guard must reject on ANY path segment
@@ -646,6 +673,31 @@ test('sanitizeErrorMessage does not corrupt a path via prefix substitution when 
   const sanitized = sanitizeErrorMessage(message);
   assert.ok(!sanitized.includes('/private/var'), 'no resolved-symlink path fragment should leak');
   assert.ok(!sanitized.includes('privatetemplate'), 'must never merge into a mangled, non-existent path');
+  assert.ok(sanitized.includes('icon.png'), 'the actionable filename must survive');
+});
+
+test('sanitizeErrorMessage redacts a Windows-style absolute path, which the Unix pattern cannot see at all', () => {
+  // A Windows path contains no forward slash, so ABSOLUTE_PATH_PATTERN never
+  // matches one and the whole string — OS username included — used to reach
+  // the client verbatim through /template-validation.json. Note this runs on
+  // POSIX here: the redaction has to use path.win32.basename, since the
+  // platform-default path.basename does not treat `\` as a separator and
+  // would return the entire string unchanged, failing this test.
+  const message =
+    'Bundle at C:\\Users\\alice\\project\\template\\reference contains files outside the template contract: evil.html';
+  const sanitized = sanitizeErrorMessage(message);
+  assert.ok(!sanitized.includes('C:\\Users\\alice'), 'the absolute Windows path must be stripped');
+  assert.ok(!sanitized.includes('project'), 'no intermediate directory should survive');
+  assert.ok(sanitized.includes('Bundle at reference contains'), 'only the basename should remain in place');
+  assert.ok(sanitized.includes('evil.html'), 'the actionable filename must survive');
+});
+
+test('sanitizeErrorMessage redacts a UNC path and leaves Unix redaction intact in the same message', () => {
+  const message =
+    "ENOENT: no such file or directory, open '\\\\buildserver\\share\\payment-mocker\\template\\icon.png' (mirrored at /srv/payment-mocker/template/icon.png)";
+  const sanitized = sanitizeErrorMessage(message);
+  assert.ok(!sanitized.includes('buildserver'), 'the UNC host and share must be stripped');
+  assert.ok(!sanitized.includes('/srv/payment-mocker'), 'the Unix path must still be stripped too');
   assert.ok(sanitized.includes('icon.png'), 'the actionable filename must survive');
 });
 

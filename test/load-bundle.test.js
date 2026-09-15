@@ -5,7 +5,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
-const { loadBundle } = require('../lib/load-bundle');
+const { loadBundle, isAllowedBundleFilename } = require('../lib/load-bundle');
 
 function makeBundleDir(files) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'payment-template-bundle-'));
@@ -14,6 +14,29 @@ function makeBundleDir(files) {
   }
   return dir;
 }
+
+// isAllowedBundleFilename is the contract rule on its own, exported so the
+// preview middleware's static-file route can reject a filename before it ever
+// touches the disk without restating the rule. Tested directly here, at the
+// one place that owns it.
+test('isAllowedBundleFilename accepts every name the contract defines', () => {
+  assert.equal(isAllowedBundleFilename('index.html'), true);
+  assert.equal(isAllowedBundleFilename('style.css'), true);
+  assert.equal(isAllowedBundleFilename('i18n-en-US.json'), true);
+  assert.equal(isAllowedBundleFilename('asset-logo.png'), true);
+});
+
+test('isAllowedBundleFilename rejects names outside the contract', () => {
+  // evil.html in particular: served raw by the static route, it would run as
+  // a document at the preview server's own origin, outside the sandboxed
+  // iframe the wrapped index.html is confined to.
+  assert.equal(isAllowedBundleFilename('evil.html'), false);
+  assert.equal(isAllowedBundleFilename('notes.txt'), false);
+  // Not an `xx-XX` locale tag, so not an i18n file — the same name loadBundle
+  // already rejects the whole bundle over.
+  assert.equal(isAllowedBundleFilename('i18n-es.json'), false);
+  assert.equal(isAllowedBundleFilename('readme.md'), false);
+});
 
 test('loadBundle accepts a bundle with only contract-shaped file names', () => {
   const dir = makeBundleDir({
