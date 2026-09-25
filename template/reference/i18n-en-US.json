@@ -1,0 +1,14 @@
+{
+  "pay": {
+    "title": "Example Pay",
+    "lead": "After placing the order, you will be redirected to complete payment.",
+    "benefitGuaranteedTitle": "Guaranteed",
+    "benefitGuaranteedText": "Certified payment environment.",
+    "benefitSecureTitle": "Secure",
+    "benefitSecureText": "No registration required and no storage of your financial data.",
+    "benefitFastTitle": "Fast",
+    "benefitFastText": "Authorize in your bank app and finish checkout.",
+    "fallbackNote": "When the store locale has no translation, checkout falls back to pt-BR (this template defaultLocale).",
+    "help": "Questions? Contact support@example.com"
+  }
+}

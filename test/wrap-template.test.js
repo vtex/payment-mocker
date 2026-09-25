@@ -1,0 +1,259 @@
+'use strict';
+
+const test = require('node:test');
+const assert = require('node:assert/strict');
+const {
+  wrapTemplate,
+  RESOLVE_LOCALE_SCRIPT,
+  TEMPLATE_RUNTIME_SCRIPT,
+} = require('@vtex/payment-templates-core/wrap');
+const {
+  RESOLVE_LOCALE_SCRIPT_PATH,
+  TEMPLATE_RUNTIME_SCRIPT_PATH,
+} = require('../lib/preview-middleware');
+
+function makeBundle() {
+  return {
+    html: { text: '<p data-i18n="pay.title"></p>' },
+    i18n: {
+      'en-US': { text: '{"pay":{"title":"Pay"}}' },
+    },
+  };
+}
+
+// Decodes the character references an HTML parser would resolve in an
+// element's text content, so the tests can check the round trip the runtime
+// actually performs: parser -> textContent -> JSON.parse.
+function decodeHtmlText(text) {
+  return text.replace(/&lt;/g, '<').replace(/&amp;/g, '&');
+}
+
+// escapeJsonForHtmlText moved to @vtex/payment-templates-core/wrap as a
+// private helper (not part of that package's published surface) — its
+// escaping behaviour is covered by that package's own wrap-template tests,
+// and indirectly here by the i18n-payload assertions below.
+
+test('wrapTemplate rejects a defaultLocale that does not match the locale-tag format', () => {
+  // 'pt' is a language-only tag (no region), which CONTRACT.md's
+  // ^[a-z]{2}-[A-Z]{2}$ format explicitly rejects.
+  assert.throws(() => wrapTemplate(makeBundle(), 'pt'), /defaultLocale must match/);
+});
+
+test('wrapTemplate rejects a defaultLocale with the wrong case (region before language)', () => {
+  assert.throws(() => wrapTemplate(makeBundle(), 'PT-br'), /defaultLocale must match/);
+});
+
+test('wrapTemplate emits exactly two external scripts and no inline script at all', () => {
+  const html = wrapTemplate(makeBundle(), 'en-US', 'http://localhost:8080');
+  const scriptTags = [...html.matchAll(/<script\b[^>]*>/g)].map((match) => match[0]);
+  assert.equal(scriptTags.length, 2, 'exactly the two external scripts');
+  for (const tag of scriptTags) {
+    assert.match(tag, /\ssrc="/, 'every script tag must load an external file');
+  }
+  // Zero inline script content is the precondition for dropping the nonce:
+  // any <script> whose body is not empty would silently stop executing under
+  // the nonce-less CSP (or, worse, invite bringing 'unsafe-inline' back).
+  const inlineBodies = [...html.matchAll(/<script\b[^>]*>([\s\S]*?)<\/script>/g)].map((match) => match[1]);
+  assert.equal(inlineBodies.length, 2, 'both script tags must be properly closed');
+  for (const bodyText of inlineBodies) {
+    assert.equal(bodyText.trim(), '', 'no <script> may carry inline content');
+  }
+  assert.ok(!html.includes('nonce'), 'the nonce is gone along with the inline scripts');
+});
+
+test('wrapTemplate loads /lib/resolve-locale.js before the runtime that depends on it', () => {
+  const html = wrapTemplate(makeBundle(), 'en-US', 'http://localhost:8080');
+  const resolveLocaleAt = html.indexOf('<script src="' + RESOLVE_LOCALE_SCRIPT + '">');
+  const runtimeAt = html.indexOf('<script src="' + TEMPLATE_RUNTIME_SCRIPT + '">');
+  assert.ok(resolveLocaleAt > -1, 'the wrapped document must load resolve-locale.js');
+  assert.ok(runtimeAt > -1, 'the wrapped document must load the runtime');
+  // Classic scripts run in document order and the runtime calls the global
+  // resolveLocale at boot, so this order is a correctness requirement.
+  assert.ok(resolveLocaleAt < runtimeAt, 'resolve-locale.js must come first');
+});
+
+test('the script URLs the wrap emits are the ones the preview middleware actually serves', () => {
+  // Two independent constants, one contract: a rename on either side would
+  // otherwise ship a document whose scripts 404 (and, with the path-scoped
+  // CSP, would not even be allowed to load).
+  assert.equal(RESOLVE_LOCALE_SCRIPT, RESOLVE_LOCALE_SCRIPT_PATH);
+  assert.equal(TEMPLATE_RUNTIME_SCRIPT, TEMPLATE_RUNTIME_SCRIPT_PATH);
+});
+
+test('wrapTemplate CSP restricts script-src to the /lib/ directory, not the whole origin', () => {
+  // THE security invariant of this policy. The bundle's own static route sits
+  // on the same origin and serves .js, so an origin-wide script-src would let
+  // a partner ship `<script src="asset-evil.js">` (resolving to
+  // /template-bundle/asset-evil.js) and have it EXECUTE. Scoping to /lib/
+  // keeps only this server's own two scripts runnable.
+  const html = wrapTemplate(makeBundle(), 'en-US', 'http://localhost:8080');
+  const scriptSrcMatch = html.match(/script-src ([^;"]+)/);
+  assert.ok(scriptSrcMatch, 'CSP must include a script-src directive');
+  const scriptSrc = scriptSrcMatch[1].trim();
+  assert.equal(scriptSrc, 'http://localhost:8080/lib/');
+  assert.ok(scriptSrc.endsWith('/lib/'), 'script-src must be path-scoped to /lib/, never the bare origin');
+  assert.ok(!html.includes("script-src 'unsafe-inline'"));
+  assert.ok(!/script-src [^;"]*'nonce-/.test(html), 'no nonce: the document has no inline scripts to authorize');
+});
+
+test('wrapTemplate CSP script-src falls back to \'self\' when no origin is given', () => {
+  // Documented consequence: the iframe is sandboxed without allow-same-origin,
+  // so 'self' matches nothing and the runtime will not load. Callers that want
+  // a working preview must pass a real origin.
+  const html = wrapTemplate(makeBundle(), 'en-US');
+  assert.match(html, /script-src 'self'/);
+});
+
+test('wrapTemplate CSP style-src allows unsafe-inline (templates may use style="..." freely)', () => {
+  const html = wrapTemplate(makeBundle(), 'en-US', 'http://localhost:8080');
+  assert.ok(html.includes("style-src http://localhost:8080 'unsafe-inline'"));
+});
+
+test('wrapTemplate CSP scopes style-src/img-src to the given origin', () => {
+  const html = wrapTemplate(makeBundle(), 'en-US', 'http://localhost:8080');
+  assert.ok(html.includes('style-src http://localhost:8080'));
+  assert.ok(html.includes('img-src http://localhost:8080 data:'));
+});
+
+test('wrapTemplate CSP falls back to \'self\' when no origin is given', () => {
+  const html = wrapTemplate(makeBundle(), 'en-US');
+  assert.ok(html.includes("style-src 'self' 'unsafe-inline'"));
+  assert.ok(html.includes("img-src 'self' data:"));
+});
+
+test('wrapTemplate throws on a hostile origin (e.g. a spoofed Host header) instead of interpolating it raw', () => {
+  // A crafted `Host`/`x-forwarded-proto` value could otherwise close the CSP
+  // meta tag's `content="..."` attribute and inject executable markup.
+  //
+  // @vtex/payment-templates-core@1.0.0 throws on a present-but-malformed
+  // origin instead of silently falling back to 'self' (that package's own
+  // RFC: there was no input the silent fallback was the right answer for —
+  // it blocks every subresource under an opaque sandboxed origin, and widens
+  // script-src to the whole origin under a normal one). This is unreachable
+  // from a real request in this repo: preview-middleware.js's requestOrigin()
+  // already normalizes any mismatch to `undefined` before calling
+  // wrapTemplate, so this only guards wrapTemplate's own defense in depth.
+  const hostileOrigin = 'x; script-src \'unsafe-inline\'"><script>alert(1)</script><b y="';
+  assert.throws(() => wrapTemplate(makeBundle(), 'en-US', hostileOrigin), /origin must match/);
+});
+
+test('wrapTemplate wraps the partner HTML in the measured flow-root container', () => {
+  const html = wrapTemplate(makeBundle(), 'en-US');
+
+  // `display:flow-root` is the height fix, not styling: it keeps the first/last
+  // child's vertical margins inside the box the runtime measures instead of
+  // letting them collapse out of it and cut content off.
+  assert.match(
+    html,
+    /<div id="template-root" data-payment-template-root style="display:flow-root">\s*<p data-i18n="pay\.title"><\/p>\s*<\/div>/,
+    'the container must carry display:flow-root and directly enclose the partner HTML'
+  );
+  // The runtime's hook is the attribute, never the id (the id is dynamic in
+  // production), so the attribute must be present regardless of the id value.
+  assert.ok(html.includes('data-payment-template-root'));
+  // Cosmetic only — drops the UA's default body margin (8px).
+  assert.ok(html.includes('<body style="margin:0;padding:0">'), 'body must zero the UA margin/padding');
+  // The container must live inside body, not beside it. (Match the opening
+  // tag itself: the selector string also appears inside the runtime script in
+  // <head>, so a bare indexOf of the attribute name would find that first.)
+  const containerAt = html.indexOf('<div id="template-root" data-payment-template-root');
+  assert.ok(containerAt > html.indexOf('<body'), 'the container must come after <body>');
+  assert.ok(containerAt < html.indexOf('</body>'), 'the container must come before </body>');
+});
+
+test('wrapTemplate carries the i18n payload in a non-script element the runtime can find by attribute', () => {
+  const html = wrapTemplate(makeBundle(), 'en-US', 'http://localhost:8080');
+  const i18nTag = html.match(/<div id="payment-template-i18n"[^>]*>/);
+  assert.ok(i18nTag, 'the payload must live in a <div>, not a <script>');
+  assert.match(i18nTag[0], /\sdata-payment-template-i18n\b/, 'the runtime looks it up by this stable attribute');
+  assert.match(i18nTag[0], /\shidden\b/, 'the payload element must not render');
+  // `hidden` alone is a UA rule a partner's `div { display: block }` would
+  // beat, dumping the JSON on screen; the inline style outranks author CSS.
+  assert.match(i18nTag[0], /style="display:none"/, 'the payload must stay hidden against partner CSS');
+  assert.ok(!/<script[^>]*type="application\/json"/.test(html), 'the old inline JSON script must be gone');
+
+  // The payload itself must still be readable as JSON after the parser
+  // resolves character references into textContent.
+  const payload = html.match(/<div id="payment-template-i18n"[^>]*>([\s\S]*?)<\/div>/)[1];
+  const parsed = JSON.parse(decodeHtmlText(payload));
+  assert.equal(parsed.defaultLocale, 'en-US');
+  assert.deepEqual(parsed.locales['en-US'], { pay: { title: 'Pay' } });
+});
+
+test('wrapTemplate keeps the partner HTML verbatim inside the container', () => {
+  // Nothing about the partner fragment may be parsed or rewritten: only the
+  // pre-existing .trim() applies.
+  const fragment = '  <div class="a" data-x="1">  <span>&amp; keep <!-- me --></span>\n</div>  ';
+  const html = wrapTemplate({ html: { text: fragment }, i18n: { 'en-US': { text: '{}' } } }, 'en-US');
+  assert.ok(html.includes('>\n' + fragment.trim() + '\n</div>'), 'the fragment must appear untouched inside the container');
+  assert.equal(html.split(fragment.trim()).length - 1, 1, 'the fragment must appear exactly once');
+});
+
+test('wrapTemplate throws on an origin containing a double quote even without other markup', () => {
+  assert.throws(
+    () => wrapTemplate(makeBundle(), 'en-US', 'http://localhost"onmouseover="alert(1)'),
+    /origin must match/
+  );
+});
+
+function containerTagOf(html) {
+  return html.match(/<div id="template-root"[^>]*>/)[0];
+}
+
+test('wrapTemplate declares the theming tokens on the container the fragment lives in', () => {
+  // The container, so the whole fragment inherits them and any selector in the
+  // partner's style.css can read them through var().
+  const html = wrapTemplate(makeBundle(), 'en-US', 'http://localhost:8080', {
+    '--checkout-font-family': 'Roboto, sans-serif',
+    '--checkout-border-radius': '3px',
+  });
+  assert.equal(
+    containerTagOf(html),
+    '<div id="template-root" data-payment-template-root ' +
+      'style="display:flow-root;--checkout-font-family:Roboto, sans-serif;--checkout-border-radius:3px">'
+  );
+  // `flow-root` is the height fix and must survive the append untouched.
+  assert.match(containerTagOf(html), /style="display:flow-root[;"]/);
+});
+
+test('wrapTemplate emits no theming declarations when the preview configures none', () => {
+  // Byte-identical to a document built before tokens existed: absent tokens are
+  // the normal case (a store that never customized has nothing to forward), so
+  // they must not leave a trace in the markup.
+  const withoutTokens = wrapTemplate(makeBundle(), 'en-US', 'http://localhost:8080');
+  assert.equal(
+    containerTagOf(withoutTokens),
+    '<div id="template-root" data-payment-template-root style="display:flow-root">'
+  );
+  assert.ok(!withoutTokens.includes('--checkout-'));
+  assert.equal(wrapTemplate(makeBundle(), 'en-US', 'http://localhost:8080', {}), withoutTokens);
+});
+
+test('wrapTemplate drops a hostile token value rather than interpolating it into the style attribute', () => {
+  // A token value originates from a merchant stylesheet in production, so it is
+  // never trusted. Dropping (not throwing) is deliberate: the template still
+  // renders, on its own fallback.
+  const html = wrapTemplate(makeBundle(), 'en-US', 'http://localhost:8080', {
+    '--checkout-font-family': 'Roboto" onmouseover="alert(1)',
+    '--checkout-border-radius': '4px;position:fixed',
+  });
+  assert.equal(
+    containerTagOf(html),
+    '<div id="template-root" data-payment-template-root style="display:flow-root">'
+  );
+  assert.ok(!html.includes('onmouseover'));
+  assert.ok(!html.includes('position:fixed'));
+});
+
+test('wrapTemplate forwards a font stack containing the quotes getComputedStyle emits', () => {
+  // The most common real value. It must arrive usable, and with no bare `"`
+  // that could close the style attribute — @vtex/payment-templates-core@1.0.0
+  // escapes `"` as `&quot;` rather than folding it to `'` (that package's own
+  // commit cf5c1bd).
+  const html = wrapTemplate(makeBundle(), 'en-US', 'http://localhost:8080', {
+    '--checkout-font-family': '"Helvetica Neue", Helvetica, Arial, sans-serif',
+  });
+  const tag = containerTagOf(html);
+  assert.ok(tag.includes('--checkout-font-family:&quot;Helvetica Neue&quot;, Helvetica, Arial, sans-serif'));
+  assert.equal(tag.match(/"/g).length, 4, 'only the id and style attribute delimiters may be double quotes');
+});
