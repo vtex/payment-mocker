@@ -9,7 +9,7 @@ const {
   sanitizeFontFamily,
   sanitizeBorderRadius,
   buildThemeTokenStyle,
-} = require('../lib/theme-tokens');
+} = require('@vtex/payment-templates-core/wrap');
 
 test('the token set is closed and names both supported properties', () => {
   // A closed set is the point of the design: it is what makes the forwarded

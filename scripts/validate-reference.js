@@ -1,6 +1,6 @@
 'use strict';
 
-const { validate } = require('@vtex/payment-templates-validator');
+const { validate } = require('@vtex/payment-templates-core');
 const { loadBundleForValidation } = require('../lib/load-bundle');
 const { readPreviewConfig } = require('../lib/preview-config');
 const { buildValidationInput } = require('../lib/validation-input');

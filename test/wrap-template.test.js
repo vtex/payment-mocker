@@ -3,11 +3,10 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const {
-  escapeJsonForHtmlText,
   wrapTemplate,
   RESOLVE_LOCALE_SCRIPT,
   TEMPLATE_RUNTIME_SCRIPT,
-} = require('../lib/wrap-template');
+} = require('@vtex/payment-templates-core/wrap');
 const {
   RESOLVE_LOCALE_SCRIPT_PATH,
   TEMPLATE_RUNTIME_SCRIPT_PATH,
@@ -29,38 +28,10 @@ function decodeHtmlText(text) {
   return text.replace(/&lt;/g, '<').replace(/&amp;/g, '&');
 }
 
-test('escapeJsonForHtmlText serializes a plain object as JSON', () => {
-  const result = escapeJsonForHtmlText({ a: 1, b: 'two' });
-  assert.equal(result, '{"a":1,"b":"two"}');
-});
-
-test('escapeJsonForHtmlText neutralizes markup so the payload cannot break out of its element', () => {
-  const result = escapeJsonForHtmlText({ payload: '</div><script>alert(1)</script>' });
-  assert.ok(!result.includes('<'), 'no raw "<" may remain: inside a <div> the content is parsed as HTML');
-  assert.ok(result.includes('&lt;'));
-  assert.deepEqual(JSON.parse(decodeHtmlText(result)), { payload: '</div><script>alert(1)</script>' });
-});
-
-test('escapeJsonForHtmlText escapes & so an entity in the data survives HTML parsing intact', () => {
-  // The payload now lives in element text content, not raw <script> text, so
-  // `&` is a metacharacter: left unescaped, `&amp;` in the data would come
-  // back out of the parser as `&`, and `&lt;` as `<`, silently corrupting the
-  // JSON (and, with a crafted value, forging markup).
-  const value = { text: 'Tom &amp; Jerry &lt;b&gt; & co' };
-  const result = escapeJsonForHtmlText(value);
-  assert.ok(!/&(?!amp;|lt;)/.test(result), 'every raw "&" must be escaped as &amp;');
-  assert.deepEqual(JSON.parse(decodeHtmlText(result)), value, 'the payload must survive the parser round trip byte for byte');
-});
-
-test('escapeJsonForHtmlText escapes U+2028/U+2029 line terminators', () => {
-  const lineSeparator = String.fromCharCode(0x2028);
-  const paragraphSeparator = String.fromCharCode(0x2029);
-  const result = escapeJsonForHtmlText({ text: lineSeparator + paragraphSeparator });
-  assert.ok(!result.includes(lineSeparator));
-  assert.ok(!result.includes(paragraphSeparator));
-  assert.ok(result.includes('\\u2028'));
-  assert.ok(result.includes('\\u2029'));
-});
+// escapeJsonForHtmlText moved to @vtex/payment-templates-core/wrap as a
+// private helper (not part of that package's published surface) — its
+// escaping behaviour is covered by that package's own wrap-template tests,
+// and indirectly here by the i18n-payload assertions below.
 
 test('wrapTemplate rejects a defaultLocale that does not match the locale-tag format', () => {
   // 'pt' is a language-only tag (no region), which CONTRACT.md's

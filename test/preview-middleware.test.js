@@ -776,7 +776,7 @@ test('createPreviewMiddleware (template-runtime script route): GET serves the re
   });
   assert.equal(res.statusCode, 200);
   assert.equal(res.headers['Content-Type'], 'application/javascript; charset=utf-8');
-  const onDisk = fs.readFileSync(path.join(__dirname, '..', 'lib', 'template-runtime.js'), 'utf8');
+  const onDisk = fs.readFileSync(require.resolve('@vtex/payment-templates-core/wrap/template-runtime.js'), 'utf8');
   assert.equal(res.body(), onDisk);
 });
 

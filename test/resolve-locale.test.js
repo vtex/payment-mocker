@@ -4,9 +4,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const vm = require('node:vm');
 const fs = require('node:fs');
-const path = require('node:path');
-const { resolveLocale } = require('../lib/resolve-locale');
-const { wrapTemplate } = require('../lib/wrap-template');
+const { resolveLocale, wrapTemplate } = require('@vtex/payment-templates-core/wrap');
 
 // The runtime is no longer a Node module that returns its own source as a
 // string — it is a real browser script served at /lib/template-runtime.js, so
@@ -15,7 +13,7 @@ const { wrapTemplate } = require('../lib/wrap-template');
 // tag BEFORE the runtime; evaluating both in that order inside one vm context
 // reproduces the document's actual load order and the global it depends on.
 function readLibScript(name) {
-  return fs.readFileSync(path.join(__dirname, '..', 'lib', name), 'utf8');
+  return fs.readFileSync(require.resolve('@vtex/payment-templates-core/wrap/' + name), 'utf8');
 }
 
 function evaluateBrowserScripts(sandbox) {
