@@ -17,14 +17,15 @@ test('the token set is closed and names both supported properties', () => {
   assert.deepEqual(THEME_TOKEN_NAMES, ['--checkout-font-family', '--checkout-border-radius']);
 });
 
-test('sanitizeFontFamily folds the double quotes getComputedStyle emits into single quotes', () => {
+test('sanitizeFontFamily escapes the double quotes getComputedStyle emits for the HTML attribute', () => {
   // The real-world value on an unstyled checkout. Rejecting it over the quote
-  // character would drop the single most common input, so it is normalized:
-  // both quotes are valid CSS delimiters, and `'` is inert inside the
-  // double-quoted HTML attribute this lands in.
+  // character would drop the single most common input, so it is neutralized
+  // instead — @vtex/payment-templates-core@1.0.0 escapes `"` as the entity
+  // rather than folding it to `'` (this package's own commit cf5c1bd), since
+  // the value lands inside a double-quoted HTML attribute.
   assert.equal(
     sanitizeFontFamily('"Helvetica Neue", Helvetica, Arial, sans-serif'),
-    "'Helvetica Neue', Helvetica, Arial, sans-serif"
+    '&quot;Helvetica Neue&quot;, Helvetica, Arial, sans-serif'
   );
 });
 

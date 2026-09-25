@@ -121,17 +121,20 @@ test('wrapTemplate CSP falls back to \'self\' when no origin is given', () => {
   assert.ok(html.includes("img-src 'self' data:"));
 });
 
-test('wrapTemplate rejects a hostile origin (e.g. a spoofed Host header) instead of interpolating it raw', () => {
+test('wrapTemplate throws on a hostile origin (e.g. a spoofed Host header) instead of interpolating it raw', () => {
   // A crafted `Host`/`x-forwarded-proto` value could otherwise close the CSP
   // meta tag's `content="..."` attribute and inject executable markup.
+  //
+  // @vtex/payment-templates-core@1.0.0 throws on a present-but-malformed
+  // origin instead of silently falling back to 'self' (that package's own
+  // RFC: there was no input the silent fallback was the right answer for —
+  // it blocks every subresource under an opaque sandboxed origin, and widens
+  // script-src to the whole origin under a normal one). This is unreachable
+  // from a real request in this repo: preview-middleware.js's requestOrigin()
+  // already normalizes any mismatch to `undefined` before calling
+  // wrapTemplate, so this only guards wrapTemplate's own defense in depth.
   const hostileOrigin = 'x; script-src \'unsafe-inline\'"><script>alert(1)</script><b y="';
-  const html = wrapTemplate(makeBundle(), 'en-US', hostileOrigin);
-
-  assert.ok(!html.includes('<script>alert(1)</script>'), 'the raw hostile payload must not appear unescaped');
-  assert.ok(!html.includes('"><script>'), 'the origin must not be able to break out of the content attribute');
-  // A rejected origin falls back to the same 'self' behavior as no origin.
-  assert.ok(html.includes("style-src 'self'"));
-  assert.ok(html.includes("img-src 'self' data:"));
+  assert.throws(() => wrapTemplate(makeBundle(), 'en-US', hostileOrigin), /origin must match/);
 });
 
 test('wrapTemplate wraps the partner HTML in the measured flow-root container', () => {
@@ -186,10 +189,11 @@ test('wrapTemplate keeps the partner HTML verbatim inside the container', () => 
   assert.equal(html.split(fragment.trim()).length - 1, 1, 'the fragment must appear exactly once');
 });
 
-test('wrapTemplate rejects an origin containing a double quote even without other markup', () => {
-  const html = wrapTemplate(makeBundle(), 'en-US', 'http://localhost"onmouseover="alert(1)');
-  assert.ok(!html.includes('onmouseover'));
-  assert.ok(html.includes("style-src 'self'"));
+test('wrapTemplate throws on an origin containing a double quote even without other markup', () => {
+  assert.throws(
+    () => wrapTemplate(makeBundle(), 'en-US', 'http://localhost"onmouseover="alert(1)'),
+    /origin must match/
+  );
 });
 
 function containerTagOf(html) {
@@ -243,11 +247,13 @@ test('wrapTemplate drops a hostile token value rather than interpolating it into
 
 test('wrapTemplate forwards a font stack containing the quotes getComputedStyle emits', () => {
   // The most common real value. It must arrive usable, and with no bare `"`
-  // that could close the style attribute.
+  // that could close the style attribute — @vtex/payment-templates-core@1.0.0
+  // escapes `"` as `&quot;` rather than folding it to `'` (that package's own
+  // commit cf5c1bd).
   const html = wrapTemplate(makeBundle(), 'en-US', 'http://localhost:8080', {
     '--checkout-font-family': '"Helvetica Neue", Helvetica, Arial, sans-serif',
   });
   const tag = containerTagOf(html);
-  assert.ok(tag.includes("--checkout-font-family:'Helvetica Neue', Helvetica, Arial, sans-serif"));
+  assert.ok(tag.includes('--checkout-font-family:&quot;Helvetica Neue&quot;, Helvetica, Arial, sans-serif'));
   assert.equal(tag.match(/"/g).length, 4, 'only the id and style attribute delimiters may be double quotes');
 });
