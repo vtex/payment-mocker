@@ -67,6 +67,35 @@ test('loadBundle rejects file names outside the contract instead of silently dro
   assert.throws(() => loadBundle(dir), /outside the template contract/);
 });
 
+test('loadBundle rejects index.html being a directory instead of crashing with EISDIR', () => {
+  const dir = makeBundleDir({
+    'style.css': 'p { color: red; }',
+    'i18n-pt-BR.json': '{"pay":{"title":"Pague"}}',
+  });
+  fs.mkdirSync(path.join(dir, 'index.html'));
+
+  assert.throws(() => loadBundle(dir), /expects index\.html to be a file, not a directory/);
+});
+
+test('loadBundle rejects style.css being a directory instead of crashing with EISDIR', () => {
+  const dir = makeBundleDir({
+    'index.html': '<p data-i18n="pay.title"></p>',
+    'i18n-pt-BR.json': '{"pay":{"title":"Pague"}}',
+  });
+  fs.mkdirSync(path.join(dir, 'style.css'));
+
+  assert.throws(() => loadBundle(dir), /expects style\.css to be a file, not a directory/);
+});
+
+test('loadBundle reports a missing index.html with a clear message instead of a raw ENOENT', () => {
+  const dir = makeBundleDir({
+    'style.css': 'p { color: red; }',
+    'i18n-pt-BR.json': '{"pay":{"title":"Pague"}}',
+  });
+
+  assert.throws(() => loadBundle(dir), /is missing required file index\.html/);
+});
+
 test('loadBundle rejects a directory whose name matches the asset pattern instead of crashing with EISDIR', () => {
   const dir = makeBundleDir({
     'index.html': '<p data-i18n="pay.title"></p>',

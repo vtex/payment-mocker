@@ -48,6 +48,23 @@ test('readPreviewConfig: a not-yet-existing bundleDir under a symlinked template
   assert.throws(() => readPreviewConfig(tempLink), /defaultLocale has no matching i18n-pt-BR\.json/);
 });
 
+test('readPreviewConfig: a bundleDir that is itself a symlink pointing outside templateRoot is rejected', () => {
+  // The lexical rebase in isInsideRoot only protects against templateRoot
+  // sitting under a symlinked ancestor — it never follows bundleDir itself.
+  // Before the fix, a bundleDir symlink pointing outside templateRoot would
+  // still lexically rebase to somewhere under the resolved root and pass,
+  // even though the files it actually reads from live elsewhere on disk.
+  const outsideTarget = path.join(container, 'outside-target');
+  fs.mkdirSync(outsideTarget, { recursive: true });
+  fs.writeFileSync(path.join(outsideTarget, 'i18n-pt-BR.json'), '{}');
+  fs.symlinkSync(outsideTarget, path.join(tempReal, 'linked-bundle'), 'dir');
+
+  const configPath = configPathFor(tempLink);
+  fs.writeFileSync(configPath, JSON.stringify({ bundleDir: 'linked-bundle', defaultLocale: 'pt-BR' }));
+
+  assert.throws(() => readPreviewConfig(tempLink), /bundleDir must stay inside template\//);
+});
+
 test('readPreviewConfig: a bundleDir that actually escapes a symlinked templateRoot is still rejected', () => {
   const configPath = configPathFor(tempLink);
   fs.writeFileSync(configPath, JSON.stringify({ bundleDir: '../escaped-bundle', defaultLocale: 'pt-BR' }));
