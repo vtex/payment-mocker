@@ -31,9 +31,22 @@
     return names[resolved] || '';
   }
 
+  // encodeURIComponent leaves `!'()*` unescaped — they're valid in a URI by
+  // its own spec — but iconName lands inside a single-quoted url('...') in a
+  // CSS property value below, where a bare `'` or `)` ends that value early
+  // and lets whatever follows smuggle a second background-image (e.g. a
+  // request to an attacker-controlled origin: `x'),url('https://evil/img`).
+  // Restricting the name to a plain filename shape closes that regardless of
+  // what encodeURIComponent does or doesn't escape.
+  var ICON_NAME_PATTERN = /^[A-Za-z0-9._/-]+$/;
+
   function applyPaymentGroupIcon() {
     if (!paymentGroupLabel || !previewConfig || !previewConfig.icon) return;
     var iconName = String(previewConfig.icon).replace(/^\.\//, '');
+    if (!ICON_NAME_PATTERN.test(iconName)) {
+      console.warn('[payment-template] preview.config.json icon "' + iconName + '" has an unexpected shape; not rendering it.');
+      return;
+    }
     paymentGroupLabel.style.backgroundImage =
       "url('" + ICON_PREFIX + encodeURIComponent(iconName) + "')";
     paymentGroupLabel.style.backgroundRepeat = 'no-repeat';

@@ -142,3 +142,93 @@ test('template-host onMessage still ignores a message with no usable payload', (
   assert.equal(host.iframe.style.height, undefined);
   assert.deepEqual(host.warnings, []);
 });
+
+/**
+ * Unlike bootHost() above (built for onMessage, whose XHR stub never fires),
+ * this drives boot() through loadPreviewConfig's callback by answering
+ * /preview.config.json synchronously, which is what actually calls
+ * applyPaymentGroupIcon(). /template-validation.json is answered with a
+ * trivially clean result so the validation-banner XHR the same boot() also
+ * fires doesn't throw.
+ */
+function bootHostWithConfig(previewConfig) {
+  const warnings = [];
+  const paymentGroupLabel = { style: {}, textContent: '' };
+  const iframe = {
+    style: {},
+    contentWindow: {},
+    setAttribute: function () {},
+    addEventListener: function () {},
+  };
+
+  const sandbox = {
+    console: {
+      warn: function (message) {
+        warnings.push(message);
+      },
+      error: function () {},
+      log: function () {},
+    },
+    XMLHttpRequest: function () {
+      const self = this;
+      let url;
+      this.open = function (method, requestUrl) {
+        url = requestUrl;
+      };
+      this.send = function () {
+        self.status = 200;
+        self.responseText =
+          url === '/preview.config.json' ? JSON.stringify(previewConfig) : JSON.stringify({ ok: true, errors: [] });
+        if (self.onload) self.onload();
+      };
+    },
+    setInterval: function () {
+      return 0;
+    },
+    clearInterval: function () {},
+  };
+
+  sandbox.document = {
+    readyState: 'complete',
+    getElementById: function (id) {
+      if (id === 'payment-template-iframe') return iframe;
+      if (id === 'payment-template-group-label') return paymentGroupLabel;
+      return null;
+    },
+    querySelector: function () {
+      return null;
+    },
+    createElement: function () {
+      return { style: {}, appendChild: function () {} };
+    },
+    addEventListener: function () {},
+  };
+  sandbox.window = sandbox;
+  sandbox.addEventListener = function () {};
+
+  vm.createContext(sandbox);
+  vm.runInContext(HOST_SCRIPT, sandbox);
+
+  return { paymentGroupLabel, warnings };
+}
+
+test('applyPaymentGroupIcon renders a plain icon filename', () => {
+  const host = bootHostWithConfig({ defaultLocale: 'pt-BR', icon: 'icon.png' });
+  assert.equal(host.paymentGroupLabel.style.backgroundImage, "url('/template-icon/icon.png')");
+  assert.deepEqual(host.warnings, []);
+});
+
+test('applyPaymentGroupIcon strips a leading "./" the same as before', () => {
+  const host = bootHostWithConfig({ defaultLocale: 'pt-BR', icon: './icon.png' });
+  assert.equal(host.paymentGroupLabel.style.backgroundImage, "url('/template-icon/icon.png')");
+});
+
+test('applyPaymentGroupIcon refuses an icon name that could break out of the CSS url(\'...\') it is embedded in', () => {
+  // Before the fix, encodeURIComponent left the closing "'" and ")" as-is, so
+  // this value would end the url('...') early and smuggle a second
+  // background-image pointing at an attacker-controlled origin.
+  const host = bootHostWithConfig({ defaultLocale: 'pt-BR', icon: "x'),url('https://evil.example/img" });
+  assert.equal(host.paymentGroupLabel.style.backgroundImage, undefined);
+  assert.equal(host.warnings.length, 1);
+  assert.match(host.warnings[0], /unexpected shape/);
+});
