@@ -741,19 +741,20 @@ test('createPreviewMiddleware (resolve-locale script route): a non-GET/HEAD meth
   assert.equal(res.headers['Allow'], 'GET, HEAD');
 });
 
-test('createPreviewMiddleware (resolve-locale script route): GET serves the real lib/resolve-locale.js source, not just a 200', async () => {
-  // res.statusCode defaults to 200 in createRes() above, so asserting only
-  // the status code would pass even if this route served the wrong file, an
-  // empty body, or nothing at all — it never actually confirms the route
-  // serves lib/resolve-locale.js. Assert on the response body containing the
-  // real function definition, and on the Content-Type this route sets.
+test('createPreviewMiddleware (resolve-locale script route): GET serves the real resolve-locale.js file, byte for byte', async () => {
+  // Same reasoning as the template-runtime route test below: a substring
+  // match would still pass on a truncated or otherwise corrupted file, since
+  // it never actually compares against the file this route claims to serve.
+  // This route is what vcs.checkout-ui vendors from, so compare byte for byte
+  // against the file on disk, same as the sibling route.
   const res = await invokeMiddleware({
     url: RESOLVE_LOCALE_SCRIPT_PATH,
     headers: { host: 'localhost:8080' },
   });
   assert.equal(res.statusCode, 200);
   assert.equal(res.headers['Content-Type'], 'application/javascript; charset=utf-8');
-  assert.match(res.body(), /function resolveLocale/);
+  const onDisk = fs.readFileSync(require.resolve('@vtex/payment-templates-core/wrap/resolve-locale.js'), 'utf8');
+  assert.equal(res.body(), onDisk);
 });
 
 test('createPreviewMiddleware (template-runtime script route): a non-GET/HEAD method responds 405', async () => {
