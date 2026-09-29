@@ -415,6 +415,66 @@ test('createPreviewMiddleware: an index.html nested in a subdirectory responds 4
   }
 });
 
+test('createPreviewMiddleware: a contract-shaped asset that is a symlink to an HTML file is served with the asset\'s own content type, not the symlink target\'s', async () => {
+  // Containment alone doesn't catch this: the symlink's target is still
+  // inside the bundle, and its *name* (asset-x.png) still passes the
+  // contract check — only the bytes on disk are HTML. Before the fix,
+  // Content-Type was sniffed from the resolved (post-symlink) file, so this
+  // would have gone out as text/html and executed as a document if opened
+  // directly. Deriving the header from the requested name instead means the
+  // browser is told (correctly, per what was actually asked for) that this
+  // is an image, regardless of what the symlink actually points to.
+  const config = readPreviewConfig(tempTemplateRoot);
+  const evilPath = path.join(config.bundlePath, 'evil-target.html');
+  const assetPath = path.join(config.bundlePath, 'asset-x.png');
+  fs.writeFileSync(evilPath, '<script>document.title = "pwned"</script>');
+  fs.symlinkSync(evilPath, assetPath);
+  try {
+    const res = await invokeMiddleware(makeReq('asset-x.png'));
+    assert.equal(res.statusCode, 200);
+    assert.equal(res.headers['Content-Type'], 'image/png');
+  } finally {
+    fs.rmSync(assetPath, { force: true });
+    fs.rmSync(evilPath, { force: true });
+  }
+});
+
+test('createPreviewMiddleware (icon route): an icon configured directly as a non-image file responds 404', async () => {
+  // No symlink needed for this one: CONTRACT.md limits the icon to a raster
+  // file directly under template/, but nothing enforced that shape before —
+  // pointing `icon` straight at an .html file served it as text/html.
+  await withPreviewConfig({ bundleDir: 'reference', defaultLocale: 'pt-BR', icon: 'reference/index.html' }, async () => {
+    const res = await invokeMiddleware(makeIconReq('reference/index.html'));
+    assert.equal(res.statusCode, 404);
+    assert.equal(res.body(), 'Not Found');
+  });
+});
+
+test('createPreviewMiddleware: sanitizeErrorMessage does not corrupt a URL quoted in a message (scheme:// looks like an absolute path)', async () => {
+  // ABSOLUTE_PATH_PATTERN is deliberately generic, so a URL's `//` after the
+  // scheme used to read as an absolute path starting mid-string, collapsing
+  // the whole thing down to its last segment (http://host/a/b.html ->
+  // http:b.html). Rare in this codebase's own error messages, but the fix is
+  // a couple of lookbehind characters, cheap enough to close as found.
+  const message = 'error at http://localhost:8080/template-bundle/index.html failed to load';
+  const sanitized = sanitizeErrorMessage(message);
+  assert.equal(sanitized, message, 'a URL must survive sanitization completely untouched');
+});
+
+test('sanitizeErrorMessage redacts a Windows-style path containing a space, same as the Unix pattern does', async () => {
+  // WINDOWS_PATH_PATTERN was fixed to allow the Unix pattern's Mobile-
+  // Documents-shaped space, but the equivalent fix was never mirrored onto
+  // the Windows pattern next to it — a Windows username with a space
+  // (`Jane Doe`, a completely ordinary Windows display name) still leaked
+  // past the point where the old pattern's `[^\s'"()\\]+` stopped at the
+  // space.
+  const message = 'Bundle at C:\\Users\\Jane Doe\\project\\template\\reference contains files outside the template contract: evil.html';
+  const sanitized = sanitizeErrorMessage(message);
+  assert.ok(!sanitized.includes('C:\\Users\\Jane Doe'), 'the space-containing Windows path must be fully stripped');
+  assert.ok(!sanitized.includes('project'), 'no intermediate directory should survive');
+  assert.ok(sanitized.includes('Bundle at reference contains'), 'only the basename should remain in place');
+});
+
 test('createPreviewMiddleware: a dotfile nested in a dot-directory inside the bundle responds 404', async () => {
   // Covers a dotfile inside a dot-*directory* (e.g. `.git/config`), not just
   // a dotfile at the top level — the guard must reject on ANY path segment
