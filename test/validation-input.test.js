@@ -72,3 +72,46 @@ test('buildValidationInput accepts an icon path that stays inside template/', ()
     fs.rmSync(path.join(templateRoot, 'icon.png'), { force: true });
   }
 });
+
+test('buildValidationInput rejects an icon path that resolves to a directory instead of a file', () => {
+  // Containment alone doesn't rule this out — a directory can be "inside
+  // template/" and still not be a thing fs.readFileSync should ever be
+  // pointed at. This is also the general-purpose guard against any
+  // non-regular file (a FIFO/named pipe in particular would make the
+  // eventual fs.readFileSync hang indefinitely waiting for a writer that
+  // never arrives), just exercised here with a directory, which is portable
+  // across platforms and doesn't need a special file created on disk.
+  fs.mkdirSync(path.join(templateRoot, 'icon-dir.png'));
+  try {
+    assert.throws(
+      () => buildValidationInput({ icon: 'icon-dir.png' }, STUB_TEMPLATE, templateRoot),
+      /icon must be a regular file/
+    );
+  } finally {
+    fs.rmSync(path.join(templateRoot, 'icon-dir.png'), { recursive: true, force: true });
+  }
+});
+
+test('buildValidationInput rejects an icon over CONTRACT.md\'s 50 KB limit without reading it in full', () => {
+  const iconPath = path.join(templateRoot, 'big-icon.png');
+  fs.writeFileSync(iconPath, Buffer.alloc(50 * 1024 + 1));
+  try {
+    assert.throws(
+      () => buildValidationInput({ icon: 'big-icon.png' }, STUB_TEMPLATE, templateRoot),
+      /icon "big-icon\.png" is \d+ bytes, over the \d+-byte limit for the icon/
+    );
+  } finally {
+    fs.rmSync(iconPath, { force: true });
+  }
+});
+
+test('buildValidationInput accepts an icon exactly at the 50 KB byte cap', () => {
+  const iconPath = path.join(templateRoot, 'exact-icon.png');
+  fs.writeFileSync(iconPath, Buffer.alloc(50 * 1024));
+  try {
+    const input = buildValidationInput({ icon: 'exact-icon.png' }, STUB_TEMPLATE, templateRoot);
+    assert.equal(input.icon.size, 50 * 1024);
+  } finally {
+    fs.rmSync(iconPath, { force: true });
+  }
+});

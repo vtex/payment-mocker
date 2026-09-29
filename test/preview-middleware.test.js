@@ -295,37 +295,27 @@ test('createPreviewMiddleware: a `..`-escape that resolves back to the bundle in
 
   for (const variant of variants) {
     const res = await invokeMiddleware(makeReq(variant));
-    const body = res.body();
-    // The raw fragment (template/reference/index.html) has no <!doctype> and
-    // no CSP meta tag — it starts with `<section class="pay">`. Directly
-    // assert on the tell-tale absence of the CSP meta tag rather than the
-    // presence of a doctype (the fragment never had one, so that check would
-    // pass trivially and miss the bypass entirely).
-    assert.ok(
-      res.statusCode !== 200 || body.includes('Content-Security-Policy'),
-      'a 200 response for ' + variant + ' must be the wrapped document (with CSP), never the raw fragment'
-    );
-    assert.ok(
-      res.statusCode === 403 || res.statusCode === 301 || res.statusCode === 200,
-      'expected 403 (contained-out), 301 (redirect to canonical index), or 200 (wrapped) for ' + variant
-    );
-    if (res.statusCode === 301) {
-      assert.equal(res.headers['Location'], BUNDLE_PREFIX + 'index.html');
-    }
+    // All three variants normalize (path.normalize, then a case-insensitive
+    // compare against 'index.html') to the bundle's own index, so the only
+    // correct response is the canonical redirect — pin that exactly, rather
+    // than accepting 403/301/200 as equally valid. A regression that instead
+    // served the wrapped document directly at this non-canonical URL (a 200,
+    // with the CSP meta tag intact) used to pass this test, even though it's
+    // exactly the wrong-base-URL breakage the canonical redirect exists to
+    // prevent: relative asset/script URLs inside the wrapped document resolve
+    // against the URL that served it, not BUNDLE_PREFIX + 'index.html'.
+    assert.equal(res.statusCode, 301, 'expected a canonical redirect for ' + variant);
+    assert.equal(res.headers['Location'], BUNDLE_PREFIX + 'index.html');
   }
 });
 
 test('createPreviewMiddleware: a percent-encoded `..`-escape that resolves back to the bundle index is never served as a raw fragment', async () => {
   const res = await invokeMiddleware(makeReq('..%2Freference%2Findex.html', { url: BUNDLE_PREFIX + '%2e%2e/reference/index.html' }));
-  const body = res.body();
-  assert.ok(
-    res.statusCode !== 200 || body.includes('Content-Security-Policy'),
-    'a 200 response must be the wrapped document (with CSP), never the raw fragment'
-  );
-  assert.ok(res.statusCode === 403 || res.statusCode === 301 || res.statusCode === 200);
-  if (res.statusCode === 301) {
-    assert.equal(res.headers['Location'], BUNDLE_PREFIX + 'index.html');
-  }
+  // Same reasoning as the plain (non-percent-encoded) variants above: this
+  // decodes and normalizes to the bundle's own index, so the canonical
+  // redirect is the one correct response — pin it exactly.
+  assert.equal(res.statusCode, 301, 'expected a canonical redirect');
+  assert.equal(res.headers['Location'], BUNDLE_PREFIX + 'index.html');
 });
 
 test('createPreviewMiddleware: a symlink inside the bundle pointing outside it responds 403 (realpath containment check)', async () => {
@@ -715,6 +705,45 @@ test('createPreviewMiddleware (config route): a contract-breaking bundle still r
   }
 });
 
+test('invalidateWrapCache does not leak Module objects into preview-middleware.js\'s own module.children on every request', async () => {
+  // require() unconditionally pushes every freshly loaded module onto its
+  // parent's module.children, with no dedup — invalidateWrapCache's
+  // delete-from-require.cache-then-require-again cycle (needed so an author
+  // editing lib/*.js while grunt is running sees the change without a
+  // restart) used to leave one more orphaned Module object here per call,
+  // forever, since nothing ever removed the stale entry it replaced. This
+  // runs on nearly every request (the config route alone triggers it via
+  // both readPreviewConfig and, for availableLocales, loadBundle), so a
+  // long-running dev server's heap grew without bound. require.cache is a
+  // process-global registry, so this file can inspect preview-middleware.js's
+  // own module entry directly.
+  //
+  // A single request already calls invalidateWrapCache() more than once
+  // (readPreviewConfig, then loadBundle for availableLocales), which — by
+  // design — deletes and does not always re-require every one of the four
+  // wrapped modules by the time the response is sent; which ones remain
+  // cached at rest is an implementation detail this test doesn't pin down.
+  // What it does pin down is the actual leak signature: no duplicate `id`
+  // ever appears in the list, and the list stops growing once it's warm.
+  const previewMiddlewareModule = require.cache[require.resolve('../lib/preview-middleware')];
+  assert.ok(previewMiddlewareModule, 'preview-middleware.js must already be in the cache');
+
+  function childIds() {
+    return previewMiddlewareModule.children.map((child) => child.id);
+  }
+
+  await invokeMiddleware(makeConfigReq()); // warm up once before measuring
+  const warmLength = childIds().length;
+
+  for (let i = 0; i < 5; i++) {
+    await invokeMiddleware(makeConfigReq());
+  }
+
+  const ids = childIds();
+  assert.equal(new Set(ids).size, ids.length, 'module.children must never contain the same module id twice');
+  assert.equal(ids.length, warmLength, 'module.children must not keep growing once warm');
+});
+
 test('createPreviewMiddleware (config route): a malformed preview.config.json responds 500 with a generic message, no filesystem path', async () => {
   await withPreviewConfig({ bundleDir: 'reference' }, async () => {
     // Missing defaultLocale — readPreviewConfig() throws synchronously.
@@ -939,8 +968,30 @@ test('createPreviewMiddleware (validation route): a malformed preview.config.jso
     const body = JSON.parse(rawBody);
     assert.equal(body.ok, false);
     assert.equal(body.errors[0].rule, 'load');
-    assert.ok(!rawBody.includes(tempTemplateRoot), 'must not leak the server filesystem path');
   });
+});
+
+test('createPreviewMiddleware (validation route): a missing preview.config.json responds 200 with ok:false and never leaks the server filesystem path', async () => {
+  // Unlike the malformed-JSON case above (a fixed message with no path in
+  // it, so a "must not leak the path" assertion there can never actually
+  // fail), a missing preview.config.json makes readPreviewConfig's own
+  // fs.readFileSync throw a raw ENOENT whose message embeds the absolute
+  // configPath verbatim — a real instance of the thing sanitizeErrorMessage
+  // exists to strip, and the one this test actually needs to exercise that.
+  const originalContent = fs.readFileSync(CONFIG_PATH, 'utf8');
+  fs.rmSync(CONFIG_PATH);
+  try {
+    const res = await invokeMiddleware(makeValidationReq());
+    assert.equal(res.statusCode, 200);
+    const rawBody = res.body();
+    const body = JSON.parse(rawBody);
+    assert.equal(body.ok, false);
+    assert.equal(body.errors[0].rule, 'load');
+    assert.match(body.errors[0].message, /ENOENT/);
+    assert.ok(!rawBody.includes(tempTemplateRoot), 'must not leak the server filesystem path');
+  } finally {
+    fs.writeFileSync(CONFIG_PATH, originalContent);
+  }
 });
 
 // Every route this middleware owns must reject non-GET/HEAD methods
@@ -1004,6 +1055,42 @@ test('createPreviewMiddleware (template-runtime script route): GET serves the re
   assert.equal(res.body(), onDisk);
 });
 
+// Gruntfile.js binds hostname: '*' (every interface, not just loopback), and
+// none of this middleware's routes require auth — they hand out the
+// partner's own unpublished bundle, icon and validator findings. A non-local
+// Host header is rejected uniformly, before any route-specific handler runs,
+// which also closes a DNS-rebinding path: a browser page whose hostname a DNS
+// answer later points at this machine sends that hostname, not 'localhost',
+// as its Host header, while still reaching this server over the route that
+// answer resolved to.
+for (const route of ['config', 'validation', 'bundle', 'icon', 'resolve-locale', 'template-runtime']) {
+  test('createPreviewMiddleware (' + route + ' route): a non-local Host header responds 403, before the route runs', async () => {
+    const url = {
+      config: PREVIEW_CONFIG_PATH,
+      validation: TEMPLATE_VALIDATION_PATH,
+      bundle: BUNDLE_PREFIX + 'index.html',
+      icon: ICON_PREFIX + 'icon.png',
+      'resolve-locale': RESOLVE_LOCALE_SCRIPT_PATH,
+      'template-runtime': TEMPLATE_RUNTIME_SCRIPT_PATH,
+    }[route];
+    const res = await invokeMiddleware({ url, headers: { host: 'attacker.example' } });
+    assert.equal(res.statusCode, 403);
+    assert.equal(res.body(), 'Forbidden');
+  });
+}
+
+test('createPreviewMiddleware: a request with no Host header at all responds 403', async () => {
+  const res = await invokeMiddleware({ url: PREVIEW_CONFIG_PATH, headers: {} });
+  assert.equal(res.statusCode, 403);
+});
+
+for (const host of ['localhost:8080', 'localhost', '127.0.0.1:8080', '[::1]:8080', 'LOCALHOST:8080']) {
+  test('createPreviewMiddleware: Host ' + host + ' is treated as local and reaches the route', async () => {
+    const res = await invokeMiddleware({ url: PREVIEW_CONFIG_PATH, headers: { host } });
+    assert.equal(res.statusCode, 200);
+  });
+}
+
 test('createPreviewMiddleware: a non-GET/HEAD method on a URL this middleware does not own is passed through to next(), not 405\'d', async () => {
   // The 405 guard must only apply to this middleware's own routes; anything
   // else should still fall through untouched.
@@ -1024,8 +1111,15 @@ test('createPreviewMiddleware (icon route): an invalid percent-escape in the URL
 // the middleware's own header-derived construction.
 
 test('createPreviewMiddleware: a Host header that fails ORIGIN_PATTERN falls back to CSP style-src \'self\' instead of being interpolated', async () => {
+  // The hostname portion must be 'localhost' (or another allowed loopback
+  // name) to get past isLocalHostname's own Host allow-list first — see that
+  // function's docblock — so the hostile part is placed after the first `:`,
+  // in the position a port would occupy. ORIGIN_PATTERN independently rejects
+  // this as a whole (`evil"><script>alert(1)</script>` is not `\d{1,5}`), so
+  // this still exercises the CSP-injection fallback this test is actually
+  // about, not the separate Host-allow-list gate.
   const res = await invokeMiddleware(
-    makeReq('', { headers: { host: 'evil.com"><script>alert(1)</script>' } })
+    makeReq('', { headers: { host: 'localhost:evil"><script>alert(1)</script>' } })
   );
   assert.equal(res.statusCode, 200);
   const body = res.body();

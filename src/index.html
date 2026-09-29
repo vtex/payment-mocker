@@ -1,6 +1,23 @@
 <!doctype html>
 <html class="js opacity csstransforms csstransitions" lang="pt-BR">
 <head>
+  <!--
+    livereload-js's default "smart" reload for .css/.png/.jpg/.jpeg changes
+    only patches <link>/<img> tags it finds in *this* document. The payment
+    template itself never lives here — it's rendered inside the sandboxed
+    #payment-template-iframe, a separate document livereload's client script
+    (which only runs in this page) cannot reach at all. Left at the default,
+    editing template/**/style.css or a raster asset finds nothing to patch
+    here and silently does nothing, with no full-page reload as a fallback —
+    exactly the changes an author makes most often while authoring a
+    template. window.LiveReloadOptions, read by livereload.js before it
+    connects, turns off both smart paths so every watched change (in
+    Gruntfile.js's watch.livereload.files) falls through to a normal full
+    page reload instead, which does reach the iframe by reloading it fresh —
+    and re-runs template-host.js's boot(), which is also the only thing that
+    ever fetches /template-validation.json, so the banner catches up too.
+  -->
+  <script>window.LiveReloadOptions = { liveCSS: false, liveImg: false };</script>
   <meta content="text/html; charset=utf-8" http-equiv="Content-Type">
   <meta content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=0" name="viewport">
   <meta content="IE=edge" http-equiv="X-UA-Compatible">

@@ -168,3 +168,56 @@ test('loadBundle rejects a directory whose name matches the asset pattern instea
   assert.throws(() => loadBundle(dir), /outside the template contract/);
   assert.throws(() => loadBundle(dir), /asset-icons/);
 });
+
+// Every file loadBundle reads was previously read in full, unconditionally,
+// before validate()'s own maxFileSize rule ever got a chance to reject it —
+// an oversized file (or a bundle full of them) fully buffered and
+// UTF-8-decoded every request, on the preview server's single synchronous
+// event loop. These pin the fix: a cheap fs.statSync-based size check runs
+// before fs.readFileSync, using the same per-file caps template/CONTRACT.md
+// documents.
+test('loadBundle rejects an index.html over CONTRACT.md\'s 128 KB limit', () => {
+  const dir = makeBundleDir({
+    'index.html': 'a'.repeat(128 * 1024 + 1),
+    'style.css': 'p { color: red; }',
+    'i18n-pt-BR.json': '{"pay":{"title":"Pague"}}',
+  });
+  assert.throws(() => loadBundle(dir), /index\.html at \d+ bytes, over the \d+-byte limit for each HTML file/);
+});
+
+test('loadBundle rejects a style.css over CONTRACT.md\'s 128 KB limit', () => {
+  const dir = makeBundleDir({
+    'index.html': '<p data-i18n="pay.title"></p>',
+    'style.css': 'p{}'.repeat(50 * 1024),
+    'i18n-pt-BR.json': '{"pay":{"title":"Pague"}}',
+  });
+  assert.throws(() => loadBundle(dir), /style\.css at \d+ bytes, over the \d+-byte limit for each CSS file/);
+});
+
+test('loadBundle rejects an i18n file over CONTRACT.md\'s 64 KB limit', () => {
+  const dir = makeBundleDir({
+    'index.html': '<p data-i18n="pay.title"></p>',
+    'style.css': 'p { color: red; }',
+    'i18n-pt-BR.json': '{"pay":' + JSON.stringify('a'.repeat(64 * 1024)) + '}',
+  });
+  assert.throws(() => loadBundle(dir), /i18n-pt-BR\.json at \d+ bytes, over the \d+-byte limit for each i18n file/);
+});
+
+test('loadBundle rejects an asset over CONTRACT.md\'s 256 KB limit', () => {
+  const dir = makeBundleDir({
+    'index.html': '<p data-i18n="pay.title"></p>',
+    'style.css': 'p { color: red; }',
+    'i18n-pt-BR.json': '{"pay":{"title":"Pague"}}',
+    'asset-logo.png': Buffer.alloc(256 * 1024 + 1),
+  });
+  assert.throws(() => loadBundle(dir), /asset-logo\.png at \d+ bytes, over the \d+-byte limit for each asset/);
+});
+
+test('loadBundle accepts a file exactly at its byte cap', () => {
+  const dir = makeBundleDir({
+    'index.html': 'a'.repeat(128 * 1024),
+    'style.css': 'p { color: red; }',
+    'i18n-pt-BR.json': '{"pay":{"title":"Pague"}}',
+  });
+  assert.doesNotThrow(() => loadBundle(dir));
+});

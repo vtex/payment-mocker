@@ -47,6 +47,7 @@ While the dev server runs, saving files under `template/` or `lib/` triggers val
 | `defaultLocale` | Fallback locale (upload field in production) |
 | `icon` | Method icon file name, relative to `template/` (not the bundle folder — shown on the payment tab) |
 | `displayName` | Labels for the payment-method tab in the checkout shell |
+| `themeTokens` | Optional `--checkout-font-family`/`--checkout-border-radius` overrides forwarded into the wrapped container — see [template/CONTRACT.md](template/CONTRACT.md#theming-tokens) |
 
 ## Authoring workflow
 
@@ -61,7 +62,7 @@ Edit the template files (livereload watches `template/` and `lib/`):
 * `template/reference/style.css` — styles (bundle-local assets only)
 * `template/reference/asset-*` — raster images
 * `template/reference/i18n-{locale}.json` — translations
-* `template/preview.config.json` — `defaultLocale`, `icon`, `displayName`, and `bundleDir`
+* `template/preview.config.json` — `defaultLocale`, `icon`, `displayName`, `themeTokens`, and `bundleDir`
 
 Use the language select at the top of the page to send `{ locale }` to the iframe. It lists the locales the bundle actually ships (one per `i18n-{locale}.json`), plus a `Default` option that uses `defaultLocale` from `template/preview.config.json`.
 
