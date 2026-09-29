@@ -22,10 +22,11 @@
     if (!previewConfig || !previewConfig.displayName) return '';
     var names = previewConfig.displayName;
     // Delegates to the same resolution algorithm the wrapped template's
-    // in-iframe runtime uses (lib/resolve-locale.js, served statically at
-    // /lib/resolve-locale.js and loaded via <script> above template-host.js
-    // in src/index.html), instead of a third, divergent reimplementation
-    // that skipped candidate sorting and the defaultLocale preference.
+    // in-iframe runtime uses (@vtex/payment-templates-core/wrap's
+    // resolve-locale.js, served statically at /lib/resolve-locale.js and
+    // loaded via <script> above template-host.js in src/index.html), instead
+    // of a third, divergent reimplementation that skipped candidate sorting
+    // and the defaultLocale preference.
     if (typeof window.resolveLocale !== 'function') return '';
     var resolved = window.resolveLocale(locale, names, previewConfig.defaultLocale);
     return names[resolved] || '';
@@ -99,10 +100,13 @@
   }
 
   var DIAGNOSTIC_MESSAGE_TYPE = 'payment-template:diagnostic';
-  // The host's own copy of the closed set lib/template-runtime.js reports (see
-  // "Diagnostics" there): a code missing from this list is dropped, never
+  // The host's own copy of the closed set the in-iframe runtime reports (see
+  // "Diagnostics" in @vtex/payment-templates-core/wrap's template-runtime.js,
+  // pinned in package.json): a code missing from this list is dropped, never
   // trusted or displayed, so adding one on the runtime side is a no-op here
-  // until both sides are updated.
+  // until both sides are updated. Nothing in this repo checks the two lists
+  // automatically now that the runtime is an external, versioned dependency —
+  // a bump that adds a diagnostic code needs this list touched by hand.
   var DIAGNOSTIC_CODES = ['stylesheetNotApplied', 'containerMissing', 'i18nPayloadInvalid'];
 
   function onMessage(event) {

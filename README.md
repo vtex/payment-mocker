@@ -77,7 +77,7 @@ Copy `template/reference/` to a new folder and point `bundleDir` at it when star
 ```
 template/           Template bundles and preview config
 src/                Checkout shell (static mock)
-lib/                Template wrap and preview middleware
+lib/                Preview middleware, bundle loading and config (the template wrap/runtime live in @vtex/payment-templates-core)
 scripts/            Validation script
 test/               Unit tests (node --test)
 ```

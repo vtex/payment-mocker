@@ -203,7 +203,21 @@ let tempContainer;
 let tempTemplateRoot;
 let CONFIG_PATH;
 
+// The one exception to "every call in this file uses the disposable temp
+// copy": invokeMiddlewareWithDefaultRoot below deliberately exercises
+// createPreviewMiddleware()'s real, zero-argument production default, which
+// resolves to this exact path — there's no way to hit that code path without
+// touching the real, checked-in reference bundle. The stray-file tests that
+// use it write here and remove it again in a `finally`, but a run killed hard
+// enough to skip that (SIGKILL, a crash) would leave it behind and break
+// `loadBundle`/`validate:reference` on the real bundle for good. Removing any
+// leftover copy before the suite starts makes that self-healing instead of a
+// permanent breakage the next run (or `npm run validate:reference`) hits.
+const REAL_STRAY_FILE_PATH = path.join(REAL_TEMPLATE_ROOT, 'reference', 'notes.txt');
+
 test.before(() => {
+  fs.rmSync(REAL_STRAY_FILE_PATH, { force: true });
+
   // The template copy lives one level *below* tempContainer (not directly at
   // the mkdtemp root) so a "package.json" placed alongside it can stand in
   // for the real repo's package.json in the "escapes template/" test below —
@@ -216,8 +230,8 @@ test.before(() => {
 
   // Every call in this file passes tempTemplateRoot explicitly (to
   // createPreviewMiddleware({ templateRoot }) or readPreviewConfig(root)) —
-  // no env var, no module cache tricks — so this never touches the real,
-  // checked-in template/ directory.
+  // except invokeMiddlewareWithDefaultRoot, see REAL_STRAY_FILE_PATH above —
+  // so this never touches the real, checked-in template/ directory otherwise.
   CONFIG_PATH = configPathFor(tempTemplateRoot);
 });
 
@@ -788,7 +802,16 @@ test('createPreviewMiddleware (validation route) called with zero arguments (the
   // and the real server — which never passes templateRoot at all — leaked
   // the raw absolute path, OS username included, straight to the client.
   const config = readPreviewConfig(); // real, checked-in template/, default root
-  const strayFilePath = path.join(config.bundlePath, 'notes.txt');
+  const strayFilePath = REAL_STRAY_FILE_PATH;
+  assert.equal(strayFilePath, path.join(config.bundlePath, 'notes.txt'));
+  // Belt-and-suspenders alongside the `finally` below: this file lives inside
+  // the real, checked-in reference bundle (see REAL_STRAY_FILE_PATH above), so
+  // a process kill between the write and the `finally` would otherwise leave
+  // it behind permanently. `process.on('exit', ...)` still fires on a normal
+  // SIGINT (Ctrl+C) — only a SIGKILL or hard crash skips it too, and
+  // test.before's own cleanup is the backstop for that remaining case.
+  const removeStrayFile = () => fs.rmSync(strayFilePath, { force: true });
+  process.on('exit', removeStrayFile);
   fs.writeFileSync(strayFilePath, 'not part of the contract');
   try {
     const res = await invokeMiddlewareWithDefaultRoot(makeValidationReq());
@@ -800,7 +823,8 @@ test('createPreviewMiddleware (validation route) called with zero arguments (the
     assert.ok(!rawBody.includes(REAL_TEMPLATE_ROOT), 'must not leak the server filesystem path');
     assert.ok(!rawBody.includes(config.bundlePath), 'must not leak the absolute bundle path');
   } finally {
-    fs.rmSync(strayFilePath, { force: true });
+    removeStrayFile();
+    process.removeListener('exit', removeStrayFile);
   }
 });
 
@@ -896,16 +920,26 @@ test('createPreviewMiddleware (validation route): a non-GET/HEAD method responds
   assert.equal(res.headers['Allow'], 'GET, HEAD');
 });
 
-test('createPreviewMiddleware (validation route): a malformed preview.config.json responds 500 with a generic message, no filesystem path', async () => {
+test('createPreviewMiddleware (validation route): a malformed preview.config.json responds 200 with ok:false, not a 500, so the banner still renders', async () => {
   await withPreviewConfig({ bundleDir: 'reference' }, async () => {
     // Missing defaultLocale — readPreviewConfig() throws synchronously, the
     // same failure mode already covered for the config route above, but here
     // exercised through the validation route's own readPreviewConfig() call.
+    //
+    // This route's contract is `{ ok, errors }` JSON — the checkout shell
+    // mock's banner only renders on a 2xx response (see
+    // src/assets/libs/template-host.js's loadTemplateValidation). Before the
+    // fix, this responded with the same plain-text 500 the config route uses,
+    // which meant exactly the mistakes an author is most likely to make while
+    // editing (a bad defaultLocale, a missing bundleDir, ...) showed no
+    // banner at all.
     const res = await invokeMiddleware(makeValidationReq());
-    assert.equal(res.statusCode, 500);
-    const body = res.body();
-    assert.equal(body, 'Invalid preview.config.json');
-    assert.ok(!body.includes(tempTemplateRoot), 'must not leak the server filesystem path');
+    assert.equal(res.statusCode, 200);
+    const rawBody = res.body();
+    const body = JSON.parse(rawBody);
+    assert.equal(body.ok, false);
+    assert.equal(body.errors[0].rule, 'load');
+    assert.ok(!rawBody.includes(tempTemplateRoot), 'must not leak the server filesystem path');
   });
 });
 
@@ -956,7 +990,7 @@ test('createPreviewMiddleware (template-runtime script route): a non-GET/HEAD me
   assert.equal(res.headers['Allow'], 'GET, HEAD');
 });
 
-test('createPreviewMiddleware (template-runtime script route): GET serves the real lib/template-runtime.js file, byte for byte', async () => {
+test('createPreviewMiddleware (template-runtime script route): GET serves the real @vtex/payment-templates-core/wrap/template-runtime.js file, byte for byte', async () => {
   // Same reasoning as the resolve-locale route test above: a status-code-only
   // assertion would pass on an empty body or the wrong file. This route is
   // what vcs.checkout-ui vendors from, so compare against the file on disk.

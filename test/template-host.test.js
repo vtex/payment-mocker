@@ -144,21 +144,56 @@ test('template-host onMessage still ignores a message with no usable payload', (
 });
 
 /**
+ * A minimal DOM-element stub capable of holding a textContent string and
+ * appended children — the shape renderValidationBanner and
+ * renderLanguageOptions actually build (div > strong, ul > li; a <select>'s
+ * <option> children), which the flat `{ style: {}, appendChild: noop }` stub
+ * bootHost()/the original bootHostWithConfig used is too thin to observe.
+ */
+function makeElement() {
+  return {
+    style: {},
+    textContent: '',
+    value: '',
+    children: [],
+    appendChild: function (child) {
+      this.children.push(child);
+    },
+    addEventListener: function () {},
+  };
+}
+
+/**
  * Unlike bootHost() above (built for onMessage, whose XHR stub never fires),
  * this drives boot() through loadPreviewConfig's callback by answering
  * /preview.config.json synchronously, which is what actually calls
- * applyPaymentGroupIcon(). /template-validation.json is answered with a
- * trivially clean result so the validation-banner XHR the same boot() also
- * fires doesn't throw.
+ * applyPaymentGroupIcon() and renderLanguageOptions(). /template-validation.json
+ * is answered with `validationResult` (a trivially clean result by default),
+ * which drives renderValidationBanner the same boot() call also triggers.
+ *
+ * The accordion anchor and its parentNode.insertBefore are stubbed just
+ * enough for ensureValidationBanner to succeed and hand back the real banner
+ * node it builds, captured here as `banner` for assertions — previously
+ * querySelector always returned null, so ensureValidationBanner returned null
+ * immediately and renderValidationBanner's whole body (the actual thing under
+ * test) never ran in any test in this file.
  */
-function bootHostWithConfig(previewConfig) {
+function bootHostWithConfig(previewConfig, validationResult) {
   const warnings = [];
   const paymentGroupLabel = { style: {}, textContent: '' };
+  const languageSelect = makeElement();
   const iframe = {
     style: {},
     contentWindow: {},
     setAttribute: function () {},
     addEventListener: function () {},
+  };
+  const accordionAnchor = {
+    parentNode: {
+      insertBefore: function (node) {
+        accordionAnchor.parentNode.insertedNode = node;
+      },
+    },
   };
 
   const sandbox = {
@@ -178,7 +213,9 @@ function bootHostWithConfig(previewConfig) {
       this.send = function () {
         self.status = 200;
         self.responseText =
-          url === '/preview.config.json' ? JSON.stringify(previewConfig) : JSON.stringify({ ok: true, errors: [] });
+          url === '/preview.config.json'
+            ? JSON.stringify(previewConfig)
+            : JSON.stringify(validationResult || { ok: true, errors: [] });
         if (self.onload) self.onload();
       };
     },
@@ -193,13 +230,14 @@ function bootHostWithConfig(previewConfig) {
     getElementById: function (id) {
       if (id === 'payment-template-iframe') return iframe;
       if (id === 'payment-template-group-label') return paymentGroupLabel;
+      if (id === 'language-select') return languageSelect;
       return null;
     },
     querySelector: function () {
-      return null;
+      return accordionAnchor;
     },
     createElement: function () {
-      return { style: {}, appendChild: function () {} };
+      return makeElement();
     },
     addEventListener: function () {},
   };
@@ -209,7 +247,12 @@ function bootHostWithConfig(previewConfig) {
   vm.createContext(sandbox);
   vm.runInContext(HOST_SCRIPT, sandbox);
 
-  return { paymentGroupLabel, warnings };
+  return {
+    paymentGroupLabel,
+    languageSelect,
+    warnings,
+    banner: accordionAnchor.parentNode.insertedNode,
+  };
 }
 
 test('applyPaymentGroupIcon renders a plain icon filename', () => {
@@ -231,4 +274,66 @@ test('applyPaymentGroupIcon refuses an icon name that could break out of the CSS
   assert.equal(host.paymentGroupLabel.style.backgroundImage, undefined);
   assert.equal(host.warnings.length, 1);
   assert.match(host.warnings[0], /unexpected shape/);
+});
+
+test('renderValidationBanner hides the banner for a clean result', () => {
+  const host = bootHostWithConfig({ defaultLocale: 'pt-BR' }, { ok: true, errors: [] });
+  assert.equal(host.banner.style.display, 'none');
+  assert.equal(host.banner.textContent, '');
+});
+
+test('renderValidationBanner shows an error finding, with its rule/message/file', () => {
+  const host = bootHostWithConfig(
+    { defaultLocale: 'pt-BR' },
+    {
+      ok: false,
+      errors: [{ rule: 'load', severity: 'error', message: 'index.html is missing', ref: { file: 'index.html' } }],
+    }
+  );
+  assert.equal(host.banner.style.display, 'block');
+  assert.equal(host.banner.style.background, '#f2dede');
+  const [title, list] = host.banner.children;
+  assert.equal(title.textContent, 'Template validation failed:');
+  assert.equal(list.children.length, 1);
+  assert.equal(list.children[0].textContent, '[error] load: index.html is missing (index.html)');
+});
+
+// @vtex/payment-templates-core returns `ok: true` even when `errors` is
+// non-empty, as long as every finding is a warning — renderValidationBanner's
+// own docblock explains this used to be swallowed by checking `validation.ok`
+// instead of `errors.length`. This is the regression that guard prevents.
+test('renderValidationBanner still shows a warning-only finding even though ok is true', () => {
+  const host = bootHostWithConfig(
+    { defaultLocale: 'pt-BR' },
+    { ok: true, errors: [{ rule: 'assetUsage', severity: 'warning', message: 'asset-logo.png is never referenced' }] }
+  );
+  assert.equal(host.banner.style.display, 'block');
+  assert.equal(host.banner.style.background, '#fcf8e3');
+  const [title, list] = host.banner.children;
+  assert.equal(title.textContent, 'Template validation warnings:');
+  assert.equal(list.children[0].textContent, '[warning] assetUsage: asset-logo.png is never referenced');
+});
+
+test('renderValidationBanner skips a malformed finding instead of dropping the whole list', () => {
+  // A non-object entry in `errors` (validate() only ever returns finding
+  // objects, but this endpoint's own load-failure fallback and a future bug
+  // are both free to violate that) must not throw out of the forEach below —
+  // the guard this pins is `if (!finding || typeof finding !== 'object') return;`.
+  const host = bootHostWithConfig(
+    { defaultLocale: 'pt-BR' },
+    { ok: false, errors: [null, { rule: 'load', severity: 'error', message: 'ok finding' }] }
+  );
+  assert.equal(host.banner.style.display, 'block');
+  const list = host.banner.children[1];
+  assert.equal(list.children.length, 1);
+  assert.equal(list.children[0].textContent, '[error] load: ok finding');
+});
+
+test('renderLanguageOptions populates the select from availableLocales, with a Default option first', () => {
+  const host = bootHostWithConfig({ defaultLocale: 'pt-BR', availableLocales: ['en-US', 'es-AR'] });
+  assert.equal(host.languageSelect.children.length, 3);
+  assert.equal(host.languageSelect.children[0].textContent, 'Default (pt-BR)');
+  assert.equal(host.languageSelect.children[1].value, 'en-US');
+  assert.equal(host.languageSelect.children[2].value, 'es-AR');
+  assert.equal(host.languageSelect.value, '');
 });

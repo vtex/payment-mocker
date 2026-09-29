@@ -55,6 +55,16 @@ test('isAllowedBundleFilename accepts every image extension the contract allows 
   assert.equal(isAllowedBundleFilename('asset-logo.webp'), true);
 });
 
+test('isAllowedBundleFilename accepts an upper-case (or mixed-case) image extension', () => {
+  // Production (@vtex/payment-templates-core's imageSafety rule) decides an
+  // asset's type by its magic bytes, never by the extension in its name, and
+  // CONTRACT.md doesn't require lower-case either — a case-sensitive match
+  // here made the local preview reject a bundle production would accept.
+  assert.equal(isAllowedBundleFilename('asset-logo.PNG'), true);
+  assert.equal(isAllowedBundleFilename('asset-logo.JPG'), true);
+  assert.equal(isAllowedBundleFilename('asset-logo.WebP'), true);
+});
+
 test('isAllowedBundleFilename rejects a name smuggling a subdirectory, even one shaped like an allowed name', () => {
   // The bundle contract (CONTRACT.md) is a flat folder — nothing here is
   // legitimately nested. The preview middleware's static route now passes
