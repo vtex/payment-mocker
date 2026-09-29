@@ -439,15 +439,55 @@ test('createPreviewMiddleware: a contract-shaped asset that is a symlink to an H
   }
 });
 
-test('createPreviewMiddleware (icon route): an icon configured directly as a non-image file responds 404', async () => {
-  // No symlink needed for this one: CONTRACT.md limits the icon to a raster
-  // file directly under template/, but nothing enforced that shape before —
-  // pointing `icon` straight at an .html file served it as text/html.
+test('createPreviewMiddleware (icon route): an icon configured with a subdirectory responds 404', async () => {
   await withPreviewConfig({ bundleDir: 'reference', defaultLocale: 'pt-BR', icon: 'reference/index.html' }, async () => {
     const res = await invokeMiddleware(makeIconReq('reference/index.html'));
     assert.equal(res.statusCode, 404);
     assert.equal(res.body(), 'Not Found');
   });
+});
+
+test('createPreviewMiddleware (icon route): a flat, non-image icon filename responds 404 — exercising the extension check, not just the no-subdirectory one', async () => {
+  // The subdirectory test above (icon: 'reference/index.html') is rejected by
+  // ICON_FILENAME_PATTERN's `[^/\\]+` before its extension arm is ever
+  // reached, so it can't tell the extension check apart from a regression
+  // that dropped it. This one has no `/` at all: CONTRACT.md limits the icon
+  // to a raster file directly under template/, but nothing enforced that
+  // shape before — pointing `icon` straight at a flat .html file served it as
+  // text/html, no subdirectory or symlink needed.
+  const evilIconPath = path.join(tempTemplateRoot, 'evil.html');
+  fs.writeFileSync(evilIconPath, '<script>document.title = "pwned"</script>');
+  try {
+    await withPreviewConfig({ bundleDir: 'reference', defaultLocale: 'pt-BR', icon: 'evil.html' }, async () => {
+      const res = await invokeMiddleware(makeIconReq('evil.html'));
+      assert.equal(res.statusCode, 404);
+      assert.equal(res.body(), 'Not Found');
+    });
+  } finally {
+    fs.rmSync(evilIconPath, { force: true });
+  }
+});
+
+test('createPreviewMiddleware (icon route): an icon that is a symlink to an HTML file is served with the icon\'s own content type, not the symlink target\'s', async () => {
+  // The bundle-route equivalent of this (asset-x.png symlinked to evil.html)
+  // is covered above; the icon route went through the exact same
+  // resolvedFile-vs-declared-name fix in the same commit but had no test of
+  // its own — a regression back to streamFile(resolvedFile, res) with no
+  // explicit content type here would not have failed anything.
+  const evilTargetPath = path.join(tempTemplateRoot, 'evil-icon-target.html');
+  const iconLinkPath = path.join(tempTemplateRoot, 'icon-link.png');
+  fs.writeFileSync(evilTargetPath, '<script>document.title = "pwned"</script>');
+  fs.symlinkSync(evilTargetPath, iconLinkPath);
+  try {
+    await withPreviewConfig({ bundleDir: 'reference', defaultLocale: 'pt-BR', icon: 'icon-link.png' }, async () => {
+      const res = await invokeMiddleware(makeIconReq('icon-link.png'));
+      assert.equal(res.statusCode, 200);
+      assert.equal(res.headers['Content-Type'], 'image/png');
+    });
+  } finally {
+    fs.rmSync(iconLinkPath, { force: true });
+    fs.rmSync(evilTargetPath, { force: true });
+  }
 });
 
 test('createPreviewMiddleware: sanitizeErrorMessage does not corrupt a URL quoted in a message (scheme:// looks like an absolute path)', async () => {
@@ -473,6 +513,37 @@ test('sanitizeErrorMessage redacts a Windows-style path containing a space, same
   assert.ok(!sanitized.includes('C:\\Users\\Jane Doe'), 'the space-containing Windows path must be fully stripped');
   assert.ok(!sanitized.includes('project'), 'no intermediate directory should survive');
   assert.ok(sanitized.includes('Bundle at reference contains'), 'only the basename should remain in place');
+});
+
+test('sanitizeErrorMessage redacts a path whose second word starts with an accented uppercase letter, on both Unix and Windows', () => {
+  // The `Jane Doe`-shaped test above only proves the space-tolerance lookahead
+  // accepts ASCII uppercase. `[A-Z]` alone missed this: "Á" is uppercase but
+  // outside that range, so a name like `João Ávila` used to leak everything
+  // from "Ávila" onward. `\p{Lu}` (Unicode uppercase-letter category) is what
+  // closes this without reopening the ordinary-lowercase-prose problem the
+  // lookahead exists to avoid in the first place.
+  const windowsMessage = 'Bundle at C:\\Users\\João Ávila\\proj\\template\\reference contains files';
+  assert.equal(sanitizeErrorMessage(windowsMessage), 'Bundle at reference contains files');
+
+  const unixMessage = 'Bundle at /Users/João Ávila/proj/template/reference contains files';
+  assert.equal(sanitizeErrorMessage(unixMessage), 'Bundle at reference contains files');
+});
+
+// KNOWN, ACCEPTED LIMITATION — not a regression to fix reflexively: a real
+// folder/user name whose second word starts with a LOWERCASE letter (`jane
+// doe`, an entirely ordinary display name) is indistinguishable, character by
+// character, from resumed lowercase prose ("... contains files ..."), so the
+// match still stops at that space and a path fragment past it can still
+// reach the client. See the comment above ABSOLUTE_PATH_PATTERN for what
+// actually closing this would require (known-prefix substitution instead of
+// this generic pattern) — deliberately not attempted here. This test pins
+// today's behavior so a future change to this regex either improves it
+// consciously or is caught updating this assertion, rather than silently
+// drifting.
+test('sanitizeErrorMessage: a lowercase-starting second word is a known gap, not silently worse or better', () => {
+  const message = 'Bundle at C:\\Users\\jane doe\\project\\reference contains files';
+  const sanitized = sanitizeErrorMessage(message);
+  assert.equal(sanitized, 'Bundle at jane doe\\project\\reference contains files');
 });
 
 test('createPreviewMiddleware: a dotfile nested in a dot-directory inside the bundle responds 404', async () => {
