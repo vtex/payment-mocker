@@ -38,6 +38,35 @@ test('isAllowedBundleFilename rejects names outside the contract', () => {
   assert.equal(isAllowedBundleFilename('readme.md'), false);
 });
 
+test('isAllowedBundleFilename rejects an asset- name with a non-image extension', () => {
+  // Same reasoning as evil.html above, via the `asset-` prefix instead: the
+  // prefix alone used to be enough, so `asset-x.html` passed this gate and
+  // was streamed as text/html by the static route, sandbox and CSP-free.
+  // CONTRACT.md limits assets to PNG/JPEG/WebP.
+  assert.equal(isAllowedBundleFilename('asset-x.html'), false);
+  assert.equal(isAllowedBundleFilename('asset-x.svg'), false);
+  assert.equal(isAllowedBundleFilename('asset-x'), false);
+});
+
+test('isAllowedBundleFilename accepts every image extension the contract allows for assets', () => {
+  assert.equal(isAllowedBundleFilename('asset-logo.png'), true);
+  assert.equal(isAllowedBundleFilename('asset-logo.jpg'), true);
+  assert.equal(isAllowedBundleFilename('asset-logo.jpeg'), true);
+  assert.equal(isAllowedBundleFilename('asset-logo.webp'), true);
+});
+
+test('isAllowedBundleFilename rejects a name smuggling a subdirectory, even one shaped like an allowed name', () => {
+  // The bundle contract (CONTRACT.md) is a flat folder — nothing here is
+  // legitimately nested. The preview middleware's static route now passes
+  // this function the full relative request path, not just its basename, so
+  // this guards the exact bypass a basename-only check would have missed:
+  // `old/index.html` reads as the allowed name `index.html` under
+  // path.basename, but must be rejected as a whole string.
+  assert.equal(isAllowedBundleFilename('old/index.html'), false);
+  assert.equal(isAllowedBundleFilename('sub/asset-logo.png'), false);
+  assert.equal(isAllowedBundleFilename('asset-sub/logo.png'), false);
+});
+
 test('loadBundle accepts a bundle with only contract-shaped file names', () => {
   const dir = makeBundleDir({
     'index.html': '<p data-i18n="pay.title"></p>',
@@ -74,7 +103,7 @@ test('loadBundle rejects index.html being a directory instead of crashing with E
   });
   fs.mkdirSync(path.join(dir, 'index.html'));
 
-  assert.throws(() => loadBundle(dir), /expects index\.html to be a file, not a directory/);
+  assert.throws(() => loadBundle(dir), /expects index\.html to be a regular file/);
 });
 
 test('loadBundle rejects style.css being a directory instead of crashing with EISDIR', () => {
@@ -84,7 +113,25 @@ test('loadBundle rejects style.css being a directory instead of crashing with EI
   });
   fs.mkdirSync(path.join(dir, 'style.css'));
 
-  assert.throws(() => loadBundle(dir), /expects style\.css to be a file, not a directory/);
+  assert.throws(() => loadBundle(dir), /expects style\.css to be a regular file/);
+});
+
+test('loadBundle rejects index.html being a symlink, even to a legitimate file outside the bundle', () => {
+  // Every other bundle file is rejected as a symlink via dirent.isFile() in
+  // the readdirSync loop below; index.html/style.css are read separately
+  // (they're required, not optional), so they need the same rejection
+  // applied by hand via lstatSync — otherwise these two alone could point
+  // anywhere on disk while every other file in the same bundle could not.
+  const dir = makeBundleDir({
+    'style.css': 'p { color: red; }',
+    'i18n-pt-BR.json': '{"pay":{"title":"Pague"}}',
+  });
+  const outsideFile = fs.mkdtempSync(path.join(os.tmpdir(), 'payment-template-outside-'));
+  const realIndex = path.join(outsideFile, 'index.html');
+  fs.writeFileSync(realIndex, '<p data-i18n="pay.title"></p>');
+  fs.symlinkSync(realIndex, path.join(dir, 'index.html'));
+
+  assert.throws(() => loadBundle(dir), /expects index\.html to be a regular file, not a directory or symlink/);
 });
 
 test('loadBundle reports a missing index.html with a clear message instead of a raw ENOENT', () => {

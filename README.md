@@ -8,7 +8,7 @@ We recommend you read the [Guide to Design a Payment Method to VTEX Smart Checko
 
 * Local dev server with livereload
 * Checkout shell preview with sandboxed iframe (same integration pattern as production)
-* Template bundle validation via `@vtex/payment-templates-validator`
+* Template bundle validation via `@vtex/payment-templates-core`
 
 ## Quick start
 
@@ -17,7 +17,7 @@ npm i
 grunt
 ```
 
-`grunt` validates the configured bundle first, then starts the dev server. Fix validation errors before previewing.
+`grunt` validates the configured bundle and starts the dev server either way — a failing bundle still gets a running preview, with the error reported in the terminal and as a banner in the checkout shell.
 
 Open [http://localhost:8080/](http://localhost:8080/).
 

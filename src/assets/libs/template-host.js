@@ -207,7 +207,7 @@
 
     var errors = validation && Array.isArray(validation.errors) ? validation.errors : [];
     // Deliberately does NOT also check `validation.ok`:
-    // @vtex/payment-templates-validator returns `ok: true` even when `errors`
+    // @vtex/payment-templates-core returns `ok: true` even when `errors`
     // is non-empty, as long as every finding in it is a warning (e.g. an
     // unused CSS class) rather than an error. Hiding the banner whenever
     // `ok` was true used to swallow that whole class of findings silently,

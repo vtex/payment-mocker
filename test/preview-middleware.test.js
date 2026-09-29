@@ -378,6 +378,43 @@ test('createPreviewMiddleware: a contract-shaped asset inside the bundle is stil
   assert.equal(res.headers['Content-Type'], 'image/png');
 });
 
+test('createPreviewMiddleware: an asset-prefixed file with a non-image extension responds 404', async () => {
+  // The `asset-` prefix alone used to be enough to pass the contract check —
+  // extension wasn't considered — so a stray `asset-x.html` was served raw as
+  // text/html, sandbox and CSP-free, same class of bug as evil.html above.
+  const config = readPreviewConfig(tempTemplateRoot);
+  const strayPath = path.join(config.bundlePath, 'asset-x.html');
+  fs.writeFileSync(strayPath, '<script>document.title = "pwned"</script>');
+  try {
+    const res = await invokeMiddleware(makeReq('asset-x.html'));
+    assert.equal(res.statusCode, 404);
+    assert.equal(res.body(), 'Not Found');
+    assert.ok(!res.body().includes('pwned'), 'the file contents must never be streamed');
+  } finally {
+    fs.rmSync(strayPath, { force: true });
+  }
+});
+
+test('createPreviewMiddleware: an index.html nested in a subdirectory responds 404 instead of being served unwrapped', async () => {
+  // The contract check used to run against path.basename(normalizedPath), so
+  // `old/index.html` read as the allowed bare name `index.html` and was
+  // streamed raw by this route — the one name that must never reach a
+  // shopper without the wrap/CSP the canonical index.html route applies.
+  const config = readPreviewConfig(tempTemplateRoot);
+  const nestedDir = path.join(config.bundlePath, 'old');
+  const nestedIndex = path.join(nestedDir, 'index.html');
+  fs.mkdirSync(nestedDir, { recursive: true });
+  fs.writeFileSync(nestedIndex, '<script>document.title = "pwned"</script>');
+  try {
+    const res = await invokeMiddleware(makeReq('old/index.html'));
+    assert.equal(res.statusCode, 404);
+    assert.equal(res.body(), 'Not Found');
+    assert.ok(!res.body().includes('pwned'), 'the file contents must never be streamed');
+  } finally {
+    fs.rmSync(nestedDir, { recursive: true, force: true });
+  }
+});
+
 test('createPreviewMiddleware: a dotfile nested in a dot-directory inside the bundle responds 404', async () => {
   // Covers a dotfile inside a dot-*directory* (e.g. `.git/config`), not just
   // a dotfile at the top level — the guard must reject on ANY path segment
@@ -644,17 +681,19 @@ test('createPreviewMiddleware (validation route) called with zero arguments (the
 // predicted strings, and a resolved path that would have been *corrupted*
 // (not just left exposed) by a naive substring swap.
 test('sanitizeErrorMessage redacts an absolute path outside the two previously-known cases (bundlePath/templateRoot)', () => {
-  // Stands in for `require('@vtex/payment-templates-validator')` failing
-  // because the dependency isn't installed — a realistic incomplete-`npm i`
-  // scenario. Node's real message for this also quotes the bare specifier
-  // '@vtex/payment-templates-validator' verbatim, which is not itself a
-  // filesystem path and must survive untouched.
+  // Stands in for `require('@vtex/payment-templates-core')` failing because
+  // the dependency isn't installed — a realistic incomplete-`npm i` scenario.
+  // Node's real message for this also quotes the bare specifier
+  // '@vtex/payment-templates-core' verbatim, which is not itself a filesystem
+  // path and must survive untouched. The require-stack path below is a
+  // generic stand-in, not a real machine's home directory: this test is
+  // exercising the sanitizer, not documenting anyone's actual username.
   const message =
-    "Cannot find module '@vtex/payment-templates-validator'\nRequire stack:\n- /Users/carolinaalmeida/Documents/vtex/payment-mocker/lib/preview-middleware.js";
+    "Cannot find module '@vtex/payment-templates-core'\nRequire stack:\n- /home/user/project/payment-mocker/lib/preview-middleware.js";
   const sanitized = sanitizeErrorMessage(message);
-  assert.ok(!sanitized.includes('/Users/carolinaalmeida'), 'the absolute require-stack path must be stripped');
+  assert.ok(!sanitized.includes('/home/user'), 'the absolute require-stack path must be stripped');
   assert.ok(sanitized.includes('preview-middleware.js'), 'the actionable filename must survive');
-  assert.ok(sanitized.includes("'@vtex/payment-templates-validator'"), 'the bare module specifier is not a path and must be left alone');
+  assert.ok(sanitized.includes("'@vtex/payment-templates-core'"), 'the bare module specifier is not a path and must be left alone');
 });
 
 test('sanitizeErrorMessage does not corrupt a path via prefix substitution when it sits under a symlinked ancestor', () => {
@@ -674,6 +713,25 @@ test('sanitizeErrorMessage does not corrupt a path via prefix substitution when 
   assert.ok(!sanitized.includes('/private/var'), 'no resolved-symlink path fragment should leak');
   assert.ok(!sanitized.includes('privatetemplate'), 'must never merge into a mangled, non-existent path');
   assert.ok(sanitized.includes('icon.png'), 'the actionable filename must survive');
+});
+
+test('sanitizeErrorMessage redacts a Unix path containing a space (e.g. "Mobile Documents"), without swallowing the prose that follows it', () => {
+  // A real folder name with a space in it ("Mobile Documents", "My Projects",
+  // "Program Files", ...) used to stop the match right at the space, leaving
+  // everything past it — more of the path, and the OS username in it —
+  // unredacted. The fix must also not overcorrect: ordinary prose after the
+  // path resumes in lowercase, so it must survive untouched rather than get
+  // swallowed into what the sanitizer thinks is still "the path".
+  const message =
+    'Bundle at /Users/dev/Library/Mobile Documents/com~apple~CloudDocs/template/reference contains files outside the template contract: evil.html.';
+  const sanitized = sanitizeErrorMessage(message);
+  assert.ok(!sanitized.includes('/Users/dev'), 'the absolute path, space and all, must be stripped');
+  assert.ok(!sanitized.includes('Mobile Documents'), 'the space-containing segment must not survive');
+  assert.equal(
+    sanitized,
+    'Bundle at reference contains files outside the template contract: evil.html.',
+    'only the basename should remain, and the prose after the path must be untouched'
+  );
 });
 
 test('sanitizeErrorMessage redacts a Windows-style absolute path, which the Unix pattern cannot see at all', () => {

@@ -170,7 +170,7 @@ Install dependencies from the repository root, then run:
 npm run validate:reference
 ```
 
-This runs `@vtex/payment-templates-validator` against the bundle configured in `template/preview.config.json`. A passing run prints `validate: ok — template at template/<bundleDir> passed all applicable rules.`
+This runs `@vtex/payment-templates-core` against the bundle configured in `template/preview.config.json`. A passing run prints `validate: ok — template at template/<bundleDir> passed all applicable rules.`
 
 Local validation is for feedback only. VTEX runs the same validator on upload before anything is published.
 
@@ -180,7 +180,7 @@ Local validation is for feedback only. VTEX runs the same validator on upload be
 grunt
 ```
 
-Open [http://localhost:8080/](http://localhost:8080/). `grunt` runs `@vtex/payment-templates-validator` on your bundle before starting the server; fix reported errors, then preview.
+Open [http://localhost:8080/](http://localhost:8080/). `grunt` runs `@vtex/payment-templates-core` on your bundle and starts the server either way — a failing bundle still previews, with errors reported in the terminal and as a banner in the checkout shell.
 
 The payment step renders your bundle in an iframe with `sandbox="allow-scripts"`, applies translations from the wrapped document, resizes on content changes, and accepts locale switches via `postMessage` — matching the checkout host contract.
 
