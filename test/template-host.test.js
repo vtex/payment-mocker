@@ -266,14 +266,32 @@ test('applyPaymentGroupIcon strips a leading "./" the same as before', () => {
   assert.equal(host.paymentGroupLabel.style.backgroundImage, "url('/template-icon/icon.png')");
 });
 
-test('applyPaymentGroupIcon refuses an icon name that could break out of the CSS url(\'...\') it is embedded in', () => {
-  // Before the fix, encodeURIComponent left the closing "'" and ")" as-is, so
-  // this value would end the url('...') early and smuggle a second
-  // background-image pointing at an attacker-controlled origin.
+test('applyPaymentGroupIcon escapes the characters that could break out of the CSS url(\'...\') it is embedded in', () => {
+  // encodeURIComponent alone left the closing "'" and ")" as-is, so this
+  // value would end the url('...') early and smuggle a second
+  // background-image pointing at an attacker-controlled origin. The fix
+  // percent-encodes exactly those leftover characters instead of rejecting
+  // the whole name, so the icon still renders (safely) rather than silently
+  // disappearing.
   const host = bootHostWithConfig({ defaultLocale: 'pt-BR', icon: "x'),url('https://evil.example/img" });
-  assert.equal(host.paymentGroupLabel.style.backgroundImage, undefined);
-  assert.equal(host.warnings.length, 1);
-  assert.match(host.warnings[0], /unexpected shape/);
+  assert.equal(
+    host.paymentGroupLabel.style.backgroundImage,
+    "url('/template-icon/x%27%29%2Curl%28%27https%3A%2F%2Fevil.example%2Fimg')"
+  );
+  assert.ok(!host.paymentGroupLabel.style.backgroundImage.includes("'https"), 'must not smuggle a second url(...)');
+  assert.deepEqual(host.warnings, []);
+});
+
+test('applyPaymentGroupIcon renders a name outside the old plain-filename allow-list (accented character, space)', () => {
+  // The old ICON_NAME_PATTERN allow-list rejected this even though the
+  // server-side contract (lib/preview-middleware.js's ICON_FILENAME_PATTERN)
+  // has always accepted any flat name ending in an image extension.
+  const host = bootHostWithConfig({ defaultLocale: 'pt-BR', icon: 'ícone da loja.png' });
+  assert.equal(
+    host.paymentGroupLabel.style.backgroundImage,
+    "url('/template-icon/" + encodeURIComponent('ícone da loja.png') + "')"
+  );
+  assert.deepEqual(host.warnings, []);
 });
 
 test('renderValidationBanner hides the banner for a clean result', () => {

@@ -1051,6 +1051,23 @@ test('createPreviewMiddleware: an invalid x-forwarded-proto value is ignored, fa
   assert.ok(body.includes("style-src 'self'"));
 });
 
+test('createPreviewMiddleware: the wrapped index sets a sandbox CSP header, independent of the iframe attribute', () => {
+  // The wrapped document's real isolation normally comes from the parent
+  // checkout shell's `<iframe sandbox="allow-scripts">` attribute
+  // (src/assets/libs/template-host.js), which only applies while this
+  // response is loaded *as* that iframe. Grunt binds `hostname: '*'`
+  // (Gruntfile.js), so the same URL is reachable directly, as a top-level
+  // navigation, by anything on the same network — where no iframe attribute
+  // exists to sandbox it. A `sandbox` directive can only be delivered via
+  // this header (the wrapped document's own <meta> CSP, asserted on above,
+  // cannot carry it), so this is the one thing that still confines it in
+  // that case.
+  return invokeMiddleware(makeReq('')).then((res) => {
+    assert.equal(res.statusCode, 200);
+    assert.equal(res.headers['Content-Security-Policy'], 'sandbox allow-scripts');
+  });
+});
+
 test('createPreviewMiddleware: the wrapped index still renders an invalid bundle, it is never replaced by a block page', async () => {
   await withPreviewConfig(
     {

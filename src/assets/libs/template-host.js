@@ -37,19 +37,31 @@
   // CSS property value below, where a bare `'` or `)` ends that value early
   // and lets whatever follows smuggle a second background-image (e.g. a
   // request to an attacker-controlled origin: `x'),url('https://evil/img`).
-  // Restricting the name to a plain filename shape closes that regardless of
-  // what encodeURIComponent does or doesn't escape.
-  var ICON_NAME_PATTERN = /^[A-Za-z0-9._/-]+$/;
+  //
+  // This used to reject any name outside a plain-filename shape
+  // (`/^[A-Za-z0-9._/-]+$/`) instead. That was both stricter and looser than
+  // the contract that actually governs the icon
+  // (lib/preview-middleware.js's ICON_FILENAME_PATTERN, `/^[^/\\]+\.(?:png|jpe?g|webp)$/i`,
+  // via the `/template-icon/` route): a legitimate name outside `[A-Za-z0-9._-]`
+  // (an accented character, a space) was rejected here even though the server
+  // would happily serve it, while a name containing `/` passed here even
+  // though the server always 404s it (icons are a flat name, no
+  // subdirectory). Escaping only the three characters that are actually
+  // unsafe in this specific position fixes the injection without guessing at
+  // a shape the server, not this file, is the authority on — an icon name
+  // this doesn't reject can still 404 at the server, same as any other
+  // invalid one, which is a harmless broken image, not a security issue.
+  function escapeForCssUrl(value) {
+    return value.replace(/['()]/g, function (char) {
+      return '%' + char.charCodeAt(0).toString(16);
+    });
+  }
 
   function applyPaymentGroupIcon() {
     if (!paymentGroupLabel || !previewConfig || !previewConfig.icon) return;
     var iconName = String(previewConfig.icon).replace(/^\.\//, '');
-    if (!ICON_NAME_PATTERN.test(iconName)) {
-      console.warn('[payment-template] preview.config.json icon "' + iconName + '" has an unexpected shape; not rendering it.');
-      return;
-    }
     paymentGroupLabel.style.backgroundImage =
-      "url('" + ICON_PREFIX + encodeURIComponent(iconName) + "')";
+      "url('" + ICON_PREFIX + escapeForCssUrl(encodeURIComponent(iconName)) + "')";
     paymentGroupLabel.style.backgroundRepeat = 'no-repeat';
     paymentGroupLabel.style.backgroundPosition = 'right center';
     paymentGroupLabel.style.backgroundSize = '30px auto';
