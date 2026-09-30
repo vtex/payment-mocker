@@ -5,6 +5,7 @@ const assert = require('node:assert/strict');
 const vm = require('node:vm');
 const fs = require('node:fs');
 const path = require('node:path');
+const { DIAGNOSTIC_CODES, DIAGNOSTIC_MESSAGE_TYPE } = require('@vtex/payment-templates-core/wrap');
 
 const HOST_SCRIPT = fs.readFileSync(
   path.join(__dirname, '..', 'src', 'assets', 'libs', 'template-host.js'),
@@ -103,32 +104,58 @@ test('template-host onMessage ignores a message from a window that is not the if
   assert.equal(host.iframe.style.height, undefined);
 });
 
-// lib/template-runtime.js posts diagnostics as { type, code } with no `height`
+// The in-iframe runtime (@vtex/payment-templates-core/wrap's
+// template-runtime.js) posts diagnostics as { type, code } with no `height`
 // field at all, so the `typeof data.height !== 'number'` filter used to drop
 // every one of them before anything looked at the type — the whole diagnostic
 // channel was inert on the host side.
-for (const code of ['stylesheetNotApplied', 'containerMissing', 'i18nPayloadInvalid']) {
-  test('template-host onMessage surfaces the ' + code + ' diagnostic without touching the height', () => {
+//
+// template-host.js keeps its own hand-written copy of both the message type
+// and the closed set of codes (it's a plain browser script with no module
+// system to import them through), so these iterate the package's own exports
+// rather than restating the strings here: a package bump that adds, renames
+// or drops a code — or a code deleted from the host's list by mistake — fails
+// here instead of silently turning that diagnostic into a no-op.
+test('the package exports a non-empty diagnostic code list for the tests below to iterate', () => {
+  // Guards the loop below against passing vacuously if the export ever
+  // disappeared or came back empty.
+  assert.ok(Array.isArray(DIAGNOSTIC_CODES) && DIAGNOSTIC_CODES.length > 0);
+  assert.equal(typeof DIAGNOSTIC_MESSAGE_TYPE, 'string');
+});
+
+for (const code of DIAGNOSTIC_CODES) {
+  test('template-host onMessage surfaces the package\'s ' + code + ' diagnostic without touching the height', () => {
     const host = bootHost();
-    host.post({ type: 'payment-template:diagnostic', code: code });
+    host.post({ type: DIAGNOSTIC_MESSAGE_TYPE, code: code });
     assert.deepEqual(host.warnings, ['[payment-template] diagnostic: ' + code]);
     assert.equal(host.iframe.style.height, undefined);
   });
 }
+
+test('template-host treats a message carrying the package\'s DIAGNOSTIC_MESSAGE_TYPE as a diagnostic, never as a height update', () => {
+  // A `height` alongside the package's type is the discriminating case: if
+  // the host's own copy of the type string ever drifted from the package's,
+  // this message would skip the diagnostic branch and fall through to the
+  // height filter below it, resizing the iframe and logging nothing.
+  const host = bootHost();
+  host.post({ type: DIAGNOSTIC_MESSAGE_TYPE, code: DIAGNOSTIC_CODES[0], height: 120 });
+  assert.deepEqual(host.warnings, ['[payment-template] diagnostic: ' + DIAGNOSTIC_CODES[0]]);
+  assert.equal(host.iframe.style.height, undefined);
+});
 
 test('template-host onMessage drops a diagnostic code outside the closed set', () => {
   // Same stance the runtime documents for its own side: an unrecognized code
   // is dropped, never echoed — the host must not display a string it has no
   // prior agreement about.
   const host = bootHost();
-  host.post({ type: 'payment-template:diagnostic', code: 'algumCodigoDesconhecido' });
+  host.post({ type: DIAGNOSTIC_MESSAGE_TYPE, code: 'algumCodigoDesconhecido' });
   assert.deepEqual(host.warnings, []);
   assert.equal(host.iframe.style.height, undefined);
 });
 
 test('template-host onMessage ignores a diagnostic-shaped message from another window', () => {
   const host = bootHost();
-  host.post({ type: 'payment-template:diagnostic', code: 'containerMissing' }, { notTheIframe: true });
+  host.post({ type: DIAGNOSTIC_MESSAGE_TYPE, code: DIAGNOSTIC_CODES[0] }, { notTheIframe: true });
   assert.deepEqual(host.warnings, []);
 });
 

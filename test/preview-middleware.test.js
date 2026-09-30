@@ -608,21 +608,27 @@ test('sanitizeErrorMessage redacts a path whose second word starts with an accen
   assert.equal(sanitizeErrorMessage(unixMessage), 'Bundle at reference contains files');
 });
 
-// KNOWN, ACCEPTED LIMITATION — not a regression to fix reflexively: a real
-// folder/user name whose second word starts with a LOWERCASE letter (`jane
-// doe`, an entirely ordinary display name) is indistinguishable, character by
-// character, from resumed lowercase prose ("... contains files ..."), so the
-// match still stops at that space and a path fragment past it can still
-// reach the client. See the comment above ABSOLUTE_PATH_PATTERN for what
-// actually closing this would require (known-prefix substitution instead of
-// this generic pattern) — deliberately not attempted here. This test pins
-// today's behavior so a future change to this regex either improves it
-// consciously or is caught updating this assertion, rather than silently
-// drifting.
+// KNOWN, ACCEPTED LIMITATION of the generic pattern — not a regression to
+// fix reflexively: a real folder/user name whose second word starts with a
+// LOWERCASE letter (`jane doe`, an entirely ordinary display name) is
+// indistinguishable, character by character, from resumed lowercase prose
+// ("... contains files ..."), so the match still stops at that space and a
+// path fragment past it can still reach the client. sanitizeErrorMessage's
+// known-path pass (see the o'brien/Projects(old)x tests further down) now
+// closes this for any path under TEMPLATE_ROOT, the bundle, the home
+// directory or the cwd; this pins what's left — a path under none of them,
+// which only the generic pattern ever sees — so a future change to that
+// regex either improves it consciously or is caught updating this
+// assertion, rather than silently drifting.
 test('sanitizeErrorMessage: a lowercase-starting second word is a known gap, not silently worse or better', () => {
   const message = 'Bundle at C:\\Users\\jane doe\\project\\reference contains files';
   const sanitized = sanitizeErrorMessage(message);
   assert.equal(sanitized, 'Bundle at jane doe\\project\\reference contains files');
+  // ...and closed once that path is a known one.
+  assert.equal(
+    sanitizeErrorMessage(message, ['C:\\Users\\jane doe\\project\\reference']),
+    'Bundle at reference contains files'
+  );
 });
 
 test('createPreviewMiddleware: a dotfile nested in a dot-directory inside the bundle responds 404', async () => {
@@ -973,10 +979,13 @@ test('sanitizeErrorMessage does not corrupt a path via prefix substitution when 
   // unresolved prefix happens to appear elsewhere in the resolved string —
   // splices out only part of it, leaving a mangled path like
   // "/privatetemplate/icon.png" that doesn't correspond to anything real.
-  // The regex-based approach never does prefix substitution at all, so this
-  // can't happen regardless of whether the path in the message is resolved.
+  // The known-path pass sanitizeErrorMessage does now IS a prefix
+  // substitution again, so it only replaces at a path boundary (never from
+  // the middle of `/private/var/...`) and also tries each known path's
+  // realpath'd spelling; the unresolved `/var/...` form is passed as a known
+  // path here to prove it can't splice into the resolved one.
   const message = "ENOENT: no such file or directory, open '/private/var/folders/xy/T/payment-mocker-template-abc123/template/icon.png'";
-  const sanitized = sanitizeErrorMessage(message);
+  const sanitized = sanitizeErrorMessage(message, ['/var/folders/xy/T/payment-mocker-template-abc123/template']);
   assert.ok(!sanitized.includes('/private/var'), 'no resolved-symlink path fragment should leak');
   assert.ok(!sanitized.includes('privatetemplate'), 'must never merge into a mangled, non-existent path');
   assert.ok(sanitized.includes('icon.png'), 'the actionable filename must survive');
@@ -1281,4 +1290,203 @@ test('createPreviewMiddleware: the wrapped index still renders an invalid bundle
       assert.ok(!res.body().includes('Template validation failed'));
     }
   );
+});
+
+// An oversized bundle file used to make loadBundle throw, which took the whole
+// preview down over it: 500 on the wrapped index, a lone `load` finding on
+// /template-validation.json in place of validate()'s own list, and an empty
+// locale switcher — contradicting README.md/CONTRACT.md's "a failing bundle
+// still previews". loadBundle now reads at most each file's cap and keeps its
+// real size, so validate()'s own maxFileSize rule reports it. Each case below
+// also sets an over-long displayName (a displayNameSafety error that has
+// nothing to do with file size) to prove the size finding arrives ALONGSIDE
+// the rest of validate()'s list rather than replacing it.
+const OVERLONG_DISPLAY_NAME_CONFIG = {
+  bundleDir: 'reference',
+  defaultLocale: 'pt-BR',
+  displayName: { 'pt-BR': 'A'.repeat(91), 'en-US': 'Example Pay' },
+};
+
+/**
+ * Temporarily replaces `name` in the temp bundle with `makeContents(original)`
+ * for the duration of `fn`, restoring the original bytes afterwards.
+ */
+async function withBundleFileReplaced(name, makeContents, fn) {
+  const filePath = path.join(readPreviewConfig(tempTemplateRoot).bundlePath, name);
+  const original = fs.readFileSync(filePath);
+  fs.writeFileSync(filePath, makeContents(original));
+  try {
+    await fn();
+  } finally {
+    fs.writeFileSync(filePath, original);
+  }
+}
+
+async function assertOversizeFileStillPreviews(oversizeName) {
+  const indexRes = await invokeMiddleware(makeReq('index.html'));
+  assert.equal(indexRes.statusCode, 200, 'the wrapped index must still render');
+  assert.match(indexRes.body(), /payment-template-i18n/, 'the body must be the wrap, not an error page');
+
+  const validationRes = await invokeMiddleware(makeValidationReq());
+  assert.equal(validationRes.statusCode, 200);
+  const validation = JSON.parse(validationRes.body());
+  assert.equal(validation.ok, false);
+  const rules = validation.errors.map((finding) => finding.rule);
+  assert.ok(!rules.includes('load'), 'must not collapse into a single load finding: ' + JSON.stringify(validation.errors));
+  assert.ok(
+    validation.errors.some((finding) => finding.rule === 'maxFileSize' && finding.ref && finding.ref.file === oversizeName),
+    'validate()\'s own maxFileSize rule must report ' + oversizeName + ': ' + JSON.stringify(validation.errors)
+  );
+  assert.ok(rules.includes('displayNameSafety'), 'the unrelated displayName finding must still be reported alongside it');
+
+  const configRes = await invokeMiddleware(makeConfigReq());
+  assert.equal(configRes.statusCode, 200);
+  assert.deepEqual(JSON.parse(configRes.body()).availableLocales, ['en-US', 'pt-BR']);
+}
+
+test('createPreviewMiddleware: an asset one byte over its 256 KB cap still previews, is reported by maxFileSize alongside other findings, and keeps its locales', async () => {
+  await withPreviewConfig(OVERLONG_DISPLAY_NAME_CONFIG, async () => {
+    await withBundleFileReplaced(
+      'asset-logo.png',
+      (original) => Buffer.concat([original, Buffer.alloc(262145 - original.byteLength)]),
+      () => assertOversizeFileStillPreviews('asset-logo.png')
+    );
+  });
+});
+
+test('createPreviewMiddleware: an index.html over its 128 KB cap still previews, is reported by maxFileSize alongside other findings, and keeps its locales', async () => {
+  await withPreviewConfig(OVERLONG_DISPLAY_NAME_CONFIG, async () => {
+    await withBundleFileReplaced(
+      'index.html',
+      (original) => Buffer.concat([original, Buffer.from(' '.repeat(128 * 1024))]),
+      () => assertOversizeFileStillPreviews('index.html')
+    );
+  });
+});
+
+// Problems with the configured icon used to throw out of
+// buildValidationInput and become the single `load` finding, hiding every
+// other finding in the bundle. Now each is an `icon` finding merged into
+// validate()'s own list (see lib/validation-input.js's resolveIconPath).
+test('createPreviewMiddleware (validation route): a misnamed icon and an unrelated bundle error are both reported', async () => {
+  const iconDir = path.join(tempTemplateRoot, 'img');
+  fs.mkdirSync(iconDir, { recursive: true });
+  fs.copyFileSync(path.join(tempTemplateRoot, 'icon.png'), path.join(iconDir, 'icon.png'));
+  try {
+    await withPreviewConfig(Object.assign({}, OVERLONG_DISPLAY_NAME_CONFIG, { icon: 'img/icon.png' }), async () => {
+      const res = await invokeMiddleware(makeValidationReq());
+      assert.equal(res.statusCode, 200);
+      const body = JSON.parse(res.body());
+      assert.equal(body.ok, false);
+      const rules = body.errors.map((finding) => finding.rule);
+      assert.ok(!rules.includes('load'), JSON.stringify(body.errors));
+      assert.ok(rules.includes('displayNameSafety'), 'the unrelated bundle finding must survive: ' + JSON.stringify(body.errors));
+      const iconFinding = body.errors.find((finding) => finding.rule === 'icon');
+      assert.ok(iconFinding, 'the icon problem must be its own finding');
+      assert.equal(iconFinding.severity, 'error');
+      assert.match(iconFinding.message, /placed directly under template\/: img\/icon\.png/);
+    });
+  } finally {
+    fs.rmSync(iconDir, { recursive: true, force: true });
+  }
+});
+
+test('createPreviewMiddleware (validation route): an icon finding\'s message is sanitized like a load failure\'s', async () => {
+  // path.join(root, '/abs/...') keeps the icon inside template/, so this is
+  // a not-found finding — whose message quotes config.icon verbatim, an
+  // absolute path including the server's own directory structure.
+  const absoluteIcon = path.join(tempTemplateRoot, 'nowhere', 'icon.png');
+  await withPreviewConfig({ bundleDir: 'reference', defaultLocale: 'pt-BR', icon: absoluteIcon }, async () => {
+    const res = await invokeMiddleware(makeValidationReq());
+    const rawBody = res.body();
+    const iconFinding = JSON.parse(rawBody).errors.find((finding) => finding.rule === 'icon');
+    assert.ok(iconFinding, rawBody);
+    assert.ok(!rawBody.includes(tempTemplateRoot), 'must not leak the server filesystem path: ' + rawBody);
+    assert.ok(!rawBody.includes(tempContainer), 'must not leak the server filesystem path: ' + rawBody);
+  });
+});
+
+test('createPreviewMiddleware (validation route): an oversized icon is reported by the core\'s own maxFileSize rule, alongside other findings', async () => {
+  const bigIconPath = path.join(tempTemplateRoot, 'big-icon.png');
+  const realIcon = fs.readFileSync(path.join(tempTemplateRoot, 'icon.png'));
+  fs.writeFileSync(bigIconPath, Buffer.concat([realIcon, Buffer.alloc(50 * 1024 + 1 - realIcon.byteLength)]));
+  try {
+    await withPreviewConfig(Object.assign({}, OVERLONG_DISPLAY_NAME_CONFIG, { icon: 'big-icon.png' }), async () => {
+      const res = await invokeMiddleware(makeValidationReq());
+      const body = JSON.parse(res.body());
+      const rules = body.errors.map((finding) => finding.rule);
+      assert.ok(!rules.includes('load') && !rules.includes('icon'), JSON.stringify(body.errors));
+      assert.ok(
+        body.errors.some((finding) => finding.rule === 'maxFileSize' && /big-icon\.png is 51201 bytes, over the 51200-byte limit for each icon/.test(finding.message)),
+        JSON.stringify(body.errors)
+      );
+      assert.ok(rules.includes('displayNameSafety'), JSON.stringify(body.errors));
+    });
+  } finally {
+    fs.rmSync(bigIconPath, { force: true });
+  }
+});
+
+// ABSOLUTE_PATH_PATTERN's segment stops at the first quote or paren, so a
+// real name containing one used to leave everything after it un-redacted.
+// sanitizeErrorMessage now strips the server's KNOWN absolute paths (the
+// optional second argument, plus TEMPLATE_ROOT/os.homedir()/process.cwd()
+// always) by literal substring first.
+test('sanitizeErrorMessage strips a known path containing an apostrophe whole (o\'brien)', () => {
+  const bundlePath = "/Users/o'brien/Documents/payment-mocker/template/reference";
+  assert.equal(
+    sanitizeErrorMessage('Bundle at ' + bundlePath + ' has x', [bundlePath]),
+    'Bundle at reference has x'
+  );
+  assert.equal(
+    sanitizeErrorMessage("ENOENT: no such file or directory, open '" + bundlePath + "/index.html'", [bundlePath]),
+    "ENOENT: no such file or directory, open 'reference/index.html'"
+  );
+});
+
+test('sanitizeErrorMessage strips a known path containing parentheses whole (Projects(old)x)', () => {
+  const templateRoot = '/Users/me/Projects(old)x/template';
+  assert.equal(sanitizeErrorMessage('Bundle at ' + templateRoot + ' has x', [templateRoot]), 'Bundle at template has x');
+  // A replacement ending in `)` must not let the generic pattern then eat
+  // the relative tail after it (`/index.html` right after `)` looks like an
+  // absolute path to it) — see KNOWN_PATH_TOKEN_PATTERN.
+  assert.equal(
+    sanitizeErrorMessage("open '/srv/ref(1)/index.html'", ['/srv/ref(1)']),
+    "open 'ref(1)/index.html'"
+  );
+});
+
+test('sanitizeErrorMessage strips a known Windows path in either separator spelling', () => {
+  const bundlePath = "C:\\Users\\o'brien\\proj\\template\\reference";
+  assert.equal(sanitizeErrorMessage('Bundle at ' + bundlePath + ' has x', [bundlePath]), 'Bundle at reference has x');
+  assert.equal(
+    sanitizeErrorMessage("Bundle at C:/Users/o'brien/proj/template/reference has x", [bundlePath]),
+    'Bundle at reference has x'
+  );
+});
+
+test('sanitizeErrorMessage replaces the home directory with ~, not with its last segment (usually the username)', () => {
+  // os.homedir() reads $HOME on POSIX, so pointing it at an o'brien-shaped
+  // directory needs no mocking library.
+  const originalHome = process.env.HOME;
+  process.env.HOME = "/Users/o'brien";
+  try {
+    assert.equal(
+      sanitizeErrorMessage("Cannot read /Users/o'brien/.npmrc (Projects(old)x)"),
+      'Cannot read ~/.npmrc (Projects(old)x)'
+    );
+  } finally {
+    if (originalHome === undefined) delete process.env.HOME;
+    else process.env.HOME = originalHome;
+  }
+});
+
+test('sanitizeErrorMessage only replaces a known path at a path boundary, never from the middle of a longer one', () => {
+  // `/Users/me` must not be cut out of `/Users/meg/...` (which would leave a
+  // relative `~g/...`), nor `/var/x` out of `/private/var/x/...` — those fall
+  // through to the generic pattern, which reduces them to their basename.
+  assert.equal(sanitizeErrorMessage('open /Users/meg/proj/a.js', ['/Users/me']), 'open a.js');
+  assert.equal(sanitizeErrorMessage('open /private/var/x/template/a.png', ['/var/x/template']), 'open a.png');
+  // A relative "known path" is ignored outright: it would match prose.
+  assert.equal(sanitizeErrorMessage('the template is broken', ['template']), 'the template is broken');
 });

@@ -5,7 +5,8 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
-const { buildValidationInput } = require('../lib/validation-input');
+const { validate } = require('@vtex/payment-templates-core');
+const { buildValidationInput, withExtraFindings } = require('../lib/validation-input');
 
 /**
  * lib/validation-input.js resolves `config.icon` against a `templateRoot`
@@ -14,6 +15,12 @@ const { buildValidationInput } = require('../lib/validation-input');
  * docblock). That containment check is the module's whole reason to exist per
  * its docblock ("a `../../` icon path can't read a file outside template/"),
  * yet had no test of its own.
+ *
+ * buildValidationInput returns `{ input, findings }`: every problem with the
+ * icon itself is one of its own `rule: 'icon'` findings (with the icon left
+ * out of `input`, so validate() still runs on the rest of the bundle), never
+ * a throw — a throw used to become a single `load` finding that hid every
+ * other finding in the bundle.
  *
  * Passes a disposable temp directory as `templateRoot` on every call, the
  * same way test/preview-middleware.test.js does, so this never touches the
@@ -37,40 +44,64 @@ test.after(() => {
 
 const STUB_TEMPLATE = { html: { text: '' }, css: { text: '' }, assets: [], i18n: {} };
 
-test('buildValidationInput rejects an icon path that escapes template/ via ../', () => {
-  const config = { icon: '../secret.png' };
-  assert.throws(
-    () => buildValidationInput(config, STUB_TEMPLATE, templateRoot),
-    /icon must stay inside template\//
+// A real PNG signature, so validate()'s magic-bytes type check accepts the
+// bytes that are read and a size finding is the only icon finding left.
+const PNG_SIGNATURE = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+const ICON_CAP = 50 * 1024;
+
+function withIconFile(name, contents, fn) {
+  const iconPath = path.join(templateRoot, name);
+  fs.writeFileSync(iconPath, contents);
+  try {
+    return fn(iconPath);
+  } finally {
+    fs.rmSync(iconPath, { force: true });
+  }
+}
+
+/** Asserts `result` carries exactly one icon finding matching `pattern`, and no icon in `input`. */
+function assertIconFinding(result, pattern) {
+  assert.equal(result.input.icon, undefined, 'a rejected icon must be left out of the validation input');
+  assert.equal(result.findings.length, 1);
+  const [finding] = result.findings;
+  assert.equal(finding.rule, 'icon');
+  assert.equal(finding.severity, 'error');
+  assert.match(finding.message, pattern);
+}
+
+test('buildValidationInput reports an icon path that escapes template/ via ../ as a finding, never reading it', () => {
+  // Still a clear, specific message — and the escaping file is still never
+  // read (the finding returns before any stat/read) — but no longer a throw
+  // that takes every other finding down with it.
+  assertIconFinding(
+    buildValidationInput({ icon: '../secret.png' }, STUB_TEMPLATE, templateRoot),
+    /icon must stay inside template\/: \.\.\/secret\.png/
   );
 });
 
-test('buildValidationInput rejects a deeply nested ../ escape (e.g. equivalent to ../../etc/passwd)', () => {
+test('buildValidationInput reports a deeply nested ../ escape (e.g. equivalent to ../../etc/passwd) as a finding', () => {
   // However many `..` segments are used, resolving back out of templateRoot
   // must never succeed — whether that lands on a real file outside
-  // template/ (containment error) or on nothing at all (not-found error), it
-  // must throw either way, never silently resolve.
-  const config = { icon: '../../../../../../secret.png' };
-  assert.throws(() => buildValidationInput(config, STUB_TEMPLATE, templateRoot));
+  // template/ (containment finding) or on nothing at all (not-found
+  // finding), it must be reported either way, never silently resolve.
+  const result = buildValidationInput({ icon: '../../../../../../secret.png' }, STUB_TEMPLATE, templateRoot);
+  assertIconFinding(result, /icon (must stay inside template\/|file not found)/);
 });
 
-test('buildValidationInput rejects an icon path pointing at a file that does not exist', () => {
-  const config = { icon: 'does-not-exist.png' };
-  assert.throws(
-    () => buildValidationInput(config, STUB_TEMPLATE, templateRoot),
-    /icon file not found/
+test('buildValidationInput reports an icon path pointing at a file that does not exist as a finding', () => {
+  assertIconFinding(
+    buildValidationInput({ icon: 'does-not-exist.png' }, STUB_TEMPLATE, templateRoot),
+    /icon file not found: does-not-exist\.png/
   );
 });
 
 test('buildValidationInput accepts an icon path that stays inside template/', () => {
-  fs.writeFileSync(path.join(templateRoot, 'icon.png'), 'not-really-a-png');
-  try {
-    const input = buildValidationInput({ icon: 'icon.png' }, STUB_TEMPLATE, templateRoot);
+  withIconFile('icon.png', 'not-really-a-png', () => {
+    const { input, findings } = buildValidationInput({ icon: 'icon.png' }, STUB_TEMPLATE, templateRoot);
+    assert.deepEqual(findings, []);
     assert.equal(input.icon.name, 'icon.png');
     assert.equal(input.icon.size, Buffer.byteLength('not-really-a-png'));
-  } finally {
-    fs.rmSync(path.join(templateRoot, 'icon.png'), { force: true });
-  }
+  });
 });
 
 // resolveIconPath used to check only containment, file type and size, while
@@ -80,13 +111,13 @@ test('buildValidationInput accepts an icon path that stays inside template/', ()
 // itself 404'd on them. Each one exists on disk and stays inside template/,
 // so only the name check can reject it.
 
-test('buildValidationInput rejects an icon in a subfolder of template/', () => {
+test('buildValidationInput reports an icon in a subfolder of template/ as a finding', () => {
   const iconDir = path.join(templateRoot, 'img');
   fs.mkdirSync(iconDir, { recursive: true });
   fs.writeFileSync(path.join(iconDir, 'icon.png'), 'not-really-a-png');
   try {
-    assert.throws(
-      () => buildValidationInput({ icon: 'img/icon.png' }, STUB_TEMPLATE, templateRoot),
+    assertIconFinding(
+      buildValidationInput({ icon: 'img/icon.png' }, STUB_TEMPLATE, templateRoot),
       /icon must be a \.png, \.jpg, \.jpeg or \.webp file placed directly under template\/: img\/icon\.png/
     );
   } finally {
@@ -94,111 +125,159 @@ test('buildValidationInput rejects an icon in a subfolder of template/', () => {
   }
 });
 
-test('buildValidationInput rejects an icon whose extension is not png/jpg/jpeg/webp', () => {
-  const iconPath = path.join(templateRoot, 'icon.bin');
-  fs.writeFileSync(iconPath, 'not-really-a-png');
-  try {
-    assert.throws(
-      () => buildValidationInput({ icon: 'icon.bin' }, STUB_TEMPLATE, templateRoot),
+test('buildValidationInput reports an icon whose extension is not png/jpg/jpeg/webp as a finding', () => {
+  withIconFile('icon.bin', 'not-really-a-png', () => {
+    assertIconFinding(
+      buildValidationInput({ icon: 'icon.bin' }, STUB_TEMPLATE, templateRoot),
       /icon must be a \.png, \.jpg, \.jpeg or \.webp file placed directly under template\/: icon\.bin/
     );
-  } finally {
-    fs.rmSync(iconPath, { force: true });
-  }
+  });
 });
 
 test('buildValidationInput accepts an upper-case icon extension, as the icon route does', () => {
-  const iconPath = path.join(templateRoot, 'ICON.PNG');
-  fs.writeFileSync(iconPath, 'not-really-a-png');
-  try {
-    const input = buildValidationInput({ icon: 'ICON.PNG' }, STUB_TEMPLATE, templateRoot);
+  withIconFile('ICON.PNG', 'not-really-a-png', () => {
+    const { input, findings } = buildValidationInput({ icon: 'ICON.PNG' }, STUB_TEMPLATE, templateRoot);
+    assert.deepEqual(findings, []);
     assert.equal(input.icon.name, 'ICON.PNG');
-  } finally {
-    fs.rmSync(iconPath, { force: true });
-  }
+  });
 });
 
 test('buildValidationInput accepts a flat icon name the icon route also normalizes to one (./ prefix, .webp)', () => {
   // The route tests its normalizeIndexPath()'d `normalizedIcon`, not the raw
   // value — `./icon.webp` normalizes to `icon.webp` and is served there, so
   // it must not be rejected here either.
-  const iconPath = path.join(templateRoot, 'icon.webp');
-  fs.writeFileSync(iconPath, 'not-really-a-webp');
-  try {
-    const input = buildValidationInput({ icon: './icon.webp' }, STUB_TEMPLATE, templateRoot);
+  withIconFile('icon.webp', 'not-really-a-webp', () => {
+    const { input, findings } = buildValidationInput({ icon: './icon.webp' }, STUB_TEMPLATE, templateRoot);
+    assert.deepEqual(findings, []);
     assert.equal(input.icon.size, Buffer.byteLength('not-really-a-webp'));
-  } finally {
-    fs.rmSync(iconPath, { force: true });
-  }
+  });
 });
 
-test('buildValidationInput rejects an icon path that resolves to a directory instead of a file', () => {
+test('buildValidationInput reports an icon path that resolves to a directory instead of a file as a finding', () => {
   // Containment alone doesn't rule this out — a directory can be "inside
-  // template/" and still not be a thing fs.readFileSync should ever be
-  // pointed at. This is also the general-purpose guard against any
-  // non-regular file (a FIFO/named pipe in particular would make the
-  // eventual fs.readFileSync hang indefinitely waiting for a writer that
-  // never arrives), just exercised here with a directory, which is portable
-  // across platforms and doesn't need a special file created on disk.
+  // template/" and still not be a thing to read. This is also the
+  // general-purpose guard against any non-regular file (a FIFO/named pipe in
+  // particular would make the read hang indefinitely waiting for a writer
+  // that never arrives), just exercised here with a directory, which is
+  // portable across platforms and doesn't need a special file created on
+  // disk.
   fs.mkdirSync(path.join(templateRoot, 'icon-dir.png'));
   try {
-    assert.throws(
-      () => buildValidationInput({ icon: 'icon-dir.png' }, STUB_TEMPLATE, templateRoot),
-      /icon must be a regular file/
+    assertIconFinding(
+      buildValidationInput({ icon: 'icon-dir.png' }, STUB_TEMPLATE, templateRoot),
+      /icon must be a regular file: icon-dir\.png/
     );
   } finally {
     fs.rmSync(path.join(templateRoot, 'icon-dir.png'), { recursive: true, force: true });
   }
 });
 
-test('buildValidationInput rejects an icon over CONTRACT.md\'s 50 KB limit', () => {
-  const iconPath = path.join(templateRoot, 'big-icon.png');
-  fs.writeFileSync(iconPath, Buffer.alloc(50 * 1024 + 1));
-  try {
-    assert.throws(
-      () => buildValidationInput({ icon: 'big-icon.png' }, STUB_TEMPLATE, templateRoot),
-      /icon "big-icon\.png" is \d+ bytes, over the \d+-byte limit for the icon/
-    );
-  } finally {
-    fs.rmSync(iconPath, { force: true });
-  }
+test('buildValidationInput hands an icon over CONTRACT.md\'s 50 KB limit to validate() with its real size, so the core reports it', async () => {
+  // No finding of our own for this one: oversize is validate()'s own
+  // maxFileSize rule to report (it knows the icon cap and folds the icon
+  // into the whole-bundle total), so the icon goes into `input` — only its
+  // first 50 KB read, zero-padded back to the real size validate() requires.
+  const realSize = ICON_CAP + 1;
+  const { input, findings } = withIconFile(
+    'big-icon.png',
+    Buffer.concat([PNG_SIGNATURE, Buffer.alloc(realSize - PNG_SIGNATURE.length)]),
+    () => buildValidationInput({ icon: 'big-icon.png' }, STUB_TEMPLATE, templateRoot)
+  );
+  assert.deepEqual(findings, []);
+  assert.equal(input.icon.size, realSize);
+  assert.equal(input.icon.buffer.byteLength, realSize, 'validate() requires size === buffer.byteLength');
+  const result = await validate({ icon: input.icon });
+  assert.ok(
+    result.errors.some(
+      (finding) => finding.rule === 'maxFileSize' && /big-icon\.png is 51201 bytes, over the 51200-byte limit for each icon/.test(finding.message)
+    ),
+    'validate() must report the icon as oversized: ' + JSON.stringify(result.errors)
+  );
 });
 
-// The test above only checks the thrown message — it would still pass even
-// if the size check ran AFTER fs.readFileSync instead of via the prior
-// fs.statSync. Proving the order without a mocking library (see
-// test/load-bundle.test.js's own copy of this reasoning): chmod the
-// oversized icon unreadable but still statable/realpath-able. If the size
-// check ever moved after the read, fs.readFileSync would throw EACCES
-// instead of ever reaching the size-limit message below.
+// The test above would still pass if the whole icon were read and then cut
+// down — not what "never read in full" claims. Proven without a mocking
+// library (see test/load-bundle.test.js's copy of this reasoning): swap
+// fs.readFileSync/openSync/readSync/closeSync on the shared `fs` module object
+// by hand for the one call, restored in `finally`.
+test('buildValidationInput never calls fs.readFileSync on an oversized icon, and asks fs.readSync for at most its 50 KB cap', () => {
+  withIconFile('huge-icon.png', Buffer.alloc(ICON_CAP * 4), (iconPath) => {
+    const real = { readFileSync: fs.readFileSync, openSync: fs.openSync, readSync: fs.readSync, closeSync: fs.closeSync };
+    let iconFd = null;
+    let iconFdOpen = false;
+    let bytesRequested = 0;
+    fs.readFileSync = function (filePath) {
+      if (String(filePath) === fs.realpathSync(iconPath)) throw new Error('fs.readFileSync must never be called on the oversized icon');
+      return real.readFileSync.apply(fs, arguments);
+    };
+    fs.openSync = function (filePath) {
+      const fd = real.openSync.apply(fs, arguments);
+      if (String(filePath) === fs.realpathSync(iconPath)) {
+        iconFd = fd;
+        iconFdOpen = true;
+      }
+      return fd;
+    };
+    fs.readSync = function (fd, buffer, offset, length) {
+      if (iconFdOpen && fd === iconFd) bytesRequested += length;
+      return real.readSync.apply(fs, arguments);
+    };
+    fs.closeSync = function (fd) {
+      if (fd === iconFd) iconFdOpen = false;
+      return real.closeSync.apply(fs, arguments);
+    };
+    let result;
+    try {
+      result = buildValidationInput({ icon: 'huge-icon.png' }, STUB_TEMPLATE, templateRoot);
+    } finally {
+      Object.assign(fs, real);
+    }
+    assert.notEqual(iconFd, null, 'the oversized icon must have been opened for its prefix read');
+    assert.equal(iconFdOpen, false, 'the prefix read must close its descriptor');
+    assert.ok(bytesRequested <= ICON_CAP, 'requested ' + bytesRequested + ' bytes, more than the ' + ICON_CAP + '-byte cap');
+    assert.equal(result.input.icon.size, ICON_CAP * 4);
+  });
+});
+
+// Unreadable-but-statable (chmod 0o000), the case the old stat-before-read
+// proof used. The oversized icon IS opened now (for its prefix), so this pins
+// a decision rather than an ordering: an icon that can't be read at all is
+// still an icon problem, reported as an `icon` finding like the others above,
+// not a throw that would hide the rest of the bundle's findings.
 const canTestUnreadableFile = typeof process.getuid === 'function' && process.getuid() !== 0;
 
 test(
-  'buildValidationInput rejects an oversized icon via fs.statSync, proven by never calling fs.readFileSync on it',
+  'buildValidationInput reports an unreadable icon (oversized or not) as a finding instead of throwing',
   { skip: !canTestUnreadableFile && 'requires a non-root POSIX user to make chmod 0o000 actually deny reads' },
   () => {
-    const iconPath = path.join(templateRoot, 'huge-icon.png');
-    fs.writeFileSync(iconPath, Buffer.alloc(50 * 1024 + 1));
-    fs.chmodSync(iconPath, 0o000);
-    try {
-      assert.throws(
-        () => buildValidationInput({ icon: 'huge-icon.png' }, STUB_TEMPLATE, templateRoot),
-        /icon "huge-icon\.png" is \d+ bytes, over the \d+-byte limit for the icon/
-      );
-    } finally {
-      fs.chmodSync(iconPath, 0o644);
-      fs.rmSync(iconPath, { force: true });
+    for (const size of [ICON_CAP + 1, 16]) {
+      withIconFile('locked-icon.png', Buffer.alloc(size), (iconPath) => {
+        fs.chmodSync(iconPath, 0o000);
+        try {
+          assertIconFinding(
+            buildValidationInput({ icon: 'locked-icon.png' }, STUB_TEMPLATE, templateRoot),
+            /icon could not be read: locked-icon\.png \(EACCES\)/
+          );
+        } finally {
+          fs.chmodSync(iconPath, 0o644);
+        }
+      });
     }
   }
 );
 
 test('buildValidationInput accepts an icon exactly at the 50 KB byte cap', () => {
-  const iconPath = path.join(templateRoot, 'exact-icon.png');
-  fs.writeFileSync(iconPath, Buffer.alloc(50 * 1024));
-  try {
-    const input = buildValidationInput({ icon: 'exact-icon.png' }, STUB_TEMPLATE, templateRoot);
-    assert.equal(input.icon.size, 50 * 1024);
-  } finally {
-    fs.rmSync(iconPath, { force: true });
-  }
+  withIconFile('exact-icon.png', Buffer.alloc(ICON_CAP), () => {
+    const { input, findings } = buildValidationInput({ icon: 'exact-icon.png' }, STUB_TEMPLATE, templateRoot);
+    assert.deepEqual(findings, []);
+    assert.equal(input.icon.size, ICON_CAP);
+  });
+});
+
+test('withExtraFindings appends icon findings after validate()\'s own and turns ok false for an error', () => {
+  const own = { rule: 'assetUsage', severity: 'warning', message: 'w' };
+  const icon = { rule: 'icon', severity: 'error', message: 'e' };
+  assert.deepEqual(withExtraFindings({ ok: true, errors: [own] }, [icon]), { ok: false, errors: [own, icon] });
+  const untouched = { ok: true, errors: [own] };
+  assert.equal(withExtraFindings(untouched, []), untouched);
 });

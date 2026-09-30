@@ -3,14 +3,18 @@
 const { validate } = require('@vtex/payment-templates-core');
 const { loadBundleForValidation } = require('../lib/load-bundle');
 const { readPreviewConfig } = require('../lib/preview-config');
-const { buildValidationInput } = require('../lib/validation-input');
+const { buildValidationInput, withExtraFindings } = require('../lib/validation-input');
 
 async function main() {
   const config = readPreviewConfig();
   const template = loadBundleForValidation(config.bundlePath, config.defaultLocale);
-  const input = buildValidationInput(config, template);
+  // `findings`: problems with the configured icon that kept it out of
+  // `input` (see buildValidationInput) — merged in so they fail this run and
+  // print below exactly like validate()'s own errors, while validate() still
+  // reports on everything else.
+  const { input, findings } = buildValidationInput(config, template);
 
-  const result = await validate(input);
+  const result = withExtraFindings(await validate(input), findings);
 
   if (result.ok) {
     console.log('validate: ok — template at template/' + config.bundleDir + ' passed all applicable rules.');

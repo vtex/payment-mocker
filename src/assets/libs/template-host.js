@@ -116,9 +116,12 @@
   // "Diagnostics" in @vtex/payment-templates-core/wrap's template-runtime.js,
   // pinned in package.json): a code missing from this list is dropped, never
   // trusted or displayed, so adding one on the runtime side is a no-op here
-  // until both sides are updated. Nothing in this repo checks the two lists
-  // automatically now that the runtime is an external, versioned dependency —
-  // a bump that adds a diagnostic code needs this list touched by hand.
+  // until both sides are updated. This file is a plain browser script with no
+  // module system, so it can't import the package's own DIAGNOSTIC_CODES /
+  // DIAGNOSTIC_MESSAGE_TYPE exports and both stay hand-written copies — but
+  // test/template-host.test.js now iterates those exports against this file
+  // as loaded, so a bump that adds a code (or a code dropped from here by
+  // mistake) fails `npm test` until this list is touched by hand to match.
   var DIAGNOSTIC_CODES = ['stylesheetNotApplied', 'containerMissing', 'i18nPayloadInvalid'];
 
   function onMessage(event) {

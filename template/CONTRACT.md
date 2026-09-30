@@ -158,6 +158,8 @@ Remove the object (or individual keys) to check how your template looks with its
 | Each `i18n-{locale}.json` | ≤ **64 KB** |
 | Icon (optional) | ≤ **50 KB** |
 
+The local preview reads no more of an oversized file than its limit above, so it still previews the rest of the bundle — the oversized file itself is cut off at that limit (an i18n file cut off like that is invalid JSON, so the preview can't render until it's back under its limit) — and validation reports the file's real size, along with every other finding.
+
 Images are verified by file content (magic bytes), not by extension. SVG **files** are not allowed; inline `<svg>` markup in HTML is permitted within the HTML allow list.
 
 The local preview also clamps the iframe's rendered height to a maximum of **2000 px** (and a minimum of 40 px) — see `clampHeight` in `src/assets/libs/template-host.js`. This is a display behavior of the local preview server only; it is not a rule `npm run validate:reference` (or the upload-time validator) checks.

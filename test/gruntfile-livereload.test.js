@@ -4,6 +4,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
+const minimatch = require('minimatch');
 
 /**
  * Gruntfile.js is a plain config script, not a module built to be required
@@ -74,24 +75,50 @@ test('Gruntfile.js binds the dev server and the livereload server to loopback on
   assert.equal(config.watch.livereload.options.livereload.host, '127.0.0.1');
 });
 
-test('Gruntfile.js\'s watch targets match file extensions case-insensitively', () => {
+// A changed path with an upper-case image extension — the exact shape
+// lib/load-bundle.js's case-insensitive ASSET_FILE_PATTERN accepts.
+const UPPER_CASE_ASSET_PATH = 'template/reference/asset-logo.PNG';
+
+function matchesAnyWatchPattern(files, filePath, options) {
+  return files.some(function (pattern) {
+    return minimatch(filePath, pattern, options);
+  });
+}
+
+test('Gruntfile.js\'s watch targets match an upper-case file extension, and nocase is what makes them', () => {
   // lib/load-bundle.js's ASSET_FILE_PATTERN matches an asset's extension
   // case-insensitively (production decides an asset's type by its bytes,
-  // never its name), but grunt-contrib-watch hands this whole options object
-  // straight to Gaze (`new Gaze(patterns, target.options, cb)` in its own
-  // tasks/watch.js), which matches a changed file against `files` via
-  // globule/minimatch — case-sensitively unless told otherwise. Verified
-  // directly against the installed globule (gaze's own matcher) outside this
-  // test file, since globule/gaze are transitive dependencies this suite
-  // shouldn't require on its own: `globule.isMatch(['**/*.png'],
-  // 'asset-logo.PNG', {})` is false, `{ nocase: true }` is true. Without
-  // this option, saving `asset-logo.PNG` on a case-sensitive filesystem
+  // never its name), but grunt-contrib-watch hands each target's whole
+  // options object straight to Gaze (`new Gaze(patterns, target.options, cb)`
+  // in its own tasks/watch.js), which matches a changed file against `files`
+  // via globule -> minimatch — case-sensitively unless told otherwise.
+  // Without `nocase`, saving `asset-logo.PNG` on a case-sensitive filesystem
   // (Linux; not macOS's default case-insensitive one, which never reproduces
   // this) matched neither watch target, so nothing here ever noticed the
   // save.
+  //
+  // Only asserting `options.nocase === true` would pass even if minimatch
+  // ignored that option, or if the `files` globs never covered this path in
+  // the first place. So each target's real `files` and real `options` are
+  // run through minimatch itself — the same major version (3.x) globule
+  // resolves in node_modules, now a declared devDependency rather than a
+  // transitive one this suite reached into — and the same match is repeated
+  // with only `nocase` turned off, as a negative control proving the option
+  // is what decides the outcome.
   const config = captureGruntConfig();
-  assert.equal(config.watch.validate.options.nocase, true);
-  assert.equal(config.watch.livereload.options.nocase, true);
+  for (const targetName of ['validate', 'livereload']) {
+    const target = config.watch[targetName];
+    assert.equal(
+      matchesAnyWatchPattern(target.files, UPPER_CASE_ASSET_PATH, target.options),
+      true,
+      'watch.' + targetName + ' must match ' + UPPER_CASE_ASSET_PATH + ' with its own options'
+    );
+    assert.equal(
+      matchesAnyWatchPattern(target.files, UPPER_CASE_ASSET_PATH, Object.assign({}, target.options, { nocase: false })),
+      false,
+      'watch.' + targetName + ' must NOT match ' + UPPER_CASE_ASSET_PATH + ' once nocase is off — otherwise this test proves nothing about it'
+    );
+  }
 });
 
 function invokeConnectLivereloadSnippet(hostHeader) {
