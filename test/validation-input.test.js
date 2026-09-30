@@ -73,6 +73,65 @@ test('buildValidationInput accepts an icon path that stays inside template/', ()
   }
 });
 
+// resolveIconPath used to check only containment, file type and size, while
+// the icon route (lib/preview-middleware.js's serveTemplateIcon) also
+// enforced CONTRACT.md's "raster file directly under template/" name shape —
+// so the icons below passed validation and the banner while the preview
+// itself 404'd on them. Each one exists on disk and stays inside template/,
+// so only the name check can reject it.
+
+test('buildValidationInput rejects an icon in a subfolder of template/', () => {
+  const iconDir = path.join(templateRoot, 'img');
+  fs.mkdirSync(iconDir, { recursive: true });
+  fs.writeFileSync(path.join(iconDir, 'icon.png'), 'not-really-a-png');
+  try {
+    assert.throws(
+      () => buildValidationInput({ icon: 'img/icon.png' }, STUB_TEMPLATE, templateRoot),
+      /icon must be a \.png, \.jpg, \.jpeg or \.webp file placed directly under template\/: img\/icon\.png/
+    );
+  } finally {
+    fs.rmSync(iconDir, { recursive: true, force: true });
+  }
+});
+
+test('buildValidationInput rejects an icon whose extension is not png/jpg/jpeg/webp', () => {
+  const iconPath = path.join(templateRoot, 'icon.bin');
+  fs.writeFileSync(iconPath, 'not-really-a-png');
+  try {
+    assert.throws(
+      () => buildValidationInput({ icon: 'icon.bin' }, STUB_TEMPLATE, templateRoot),
+      /icon must be a \.png, \.jpg, \.jpeg or \.webp file placed directly under template\/: icon\.bin/
+    );
+  } finally {
+    fs.rmSync(iconPath, { force: true });
+  }
+});
+
+test('buildValidationInput accepts an upper-case icon extension, as the icon route does', () => {
+  const iconPath = path.join(templateRoot, 'ICON.PNG');
+  fs.writeFileSync(iconPath, 'not-really-a-png');
+  try {
+    const input = buildValidationInput({ icon: 'ICON.PNG' }, STUB_TEMPLATE, templateRoot);
+    assert.equal(input.icon.name, 'ICON.PNG');
+  } finally {
+    fs.rmSync(iconPath, { force: true });
+  }
+});
+
+test('buildValidationInput accepts a flat icon name the icon route also normalizes to one (./ prefix, .webp)', () => {
+  // The route tests its normalizeIndexPath()'d `normalizedIcon`, not the raw
+  // value — `./icon.webp` normalizes to `icon.webp` and is served there, so
+  // it must not be rejected here either.
+  const iconPath = path.join(templateRoot, 'icon.webp');
+  fs.writeFileSync(iconPath, 'not-really-a-webp');
+  try {
+    const input = buildValidationInput({ icon: './icon.webp' }, STUB_TEMPLATE, templateRoot);
+    assert.equal(input.icon.size, Buffer.byteLength('not-really-a-webp'));
+  } finally {
+    fs.rmSync(iconPath, { force: true });
+  }
+});
+
 test('buildValidationInput rejects an icon path that resolves to a directory instead of a file', () => {
   // Containment alone doesn't rule this out — a directory can be "inside
   // template/" and still not be a thing fs.readFileSync should ever be

@@ -21,6 +21,8 @@ grunt
 
 Open [http://localhost:8080/](http://localhost:8080/).
 
+The dev server and livereload (port 35729) listen on loopback (`127.0.0.1`) only, so they're reachable from the same machine but not from other devices on the network, and port forwarding from a container or VM (e.g. `docker run -p 8080:8080`) won't reach them — run `grunt` directly on the machine whose browser you're using.
+
 Re-run validation manually:
 
 ```bash

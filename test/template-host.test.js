@@ -284,7 +284,7 @@ test('applyPaymentGroupIcon escapes the characters that could break out of the C
 
 test('applyPaymentGroupIcon renders a name outside the old plain-filename allow-list (accented character, space)', () => {
   // The old ICON_NAME_PATTERN allow-list rejected this even though the
-  // server-side contract (lib/preview-middleware.js's ICON_FILENAME_PATTERN)
+  // server-side contract (lib/preview-config.js's ICON_FILENAME_PATTERN)
   // has always accepted any flat name ending in an image extension.
   const host = bootHostWithConfig({ defaultLocale: 'pt-BR', icon: 'ícone da loja.png' });
   assert.equal(

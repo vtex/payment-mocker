@@ -47,11 +47,18 @@ module.exports = function(grunt) {
         // non-browser client on the LAN from setting Host: localhost itself,
         // since Host is just a request header, not a property of which
         // interface the connection actually arrived on. Binding the socket
-        // itself to loopback is what actually keeps such a client out; it
-        // also means previewing from another device (e.g. a phone) on the
-        // same network no longer works, but that already didn't work once
-        // the Host allow-list shipped — every route the previewed page
-        // depends on already rejected that device's own real Host header.
+        // itself to loopback is what actually keeps such a client out. It
+        // does cost something the Host allow-list alone didn't: previewing
+        // from another device (e.g. a phone) on the same network was already
+        // broken by that allow-list (that device's real Host header is
+        // rejected), but running grunt inside Docker or a VM with forwarded
+        // ports (e.g. `-p 8080:8080 -p 35729:35729`) used to work — the host
+        // browser still sent `Host: localhost:8080`, which the allow-list
+        // accepts, and the server listened on '*'. Now neither this server
+        // nor livereload (bound to loopback below too) answers on the
+        // container's/VM's own interface, so the forwarded port never
+        // reaches them; run grunt on the host machine itself instead (see
+        // README.md).
         //
         // A literal IP, not the name 'localhost': `.listen(port,
         // 'localhost')` resolves that name to a single address before
