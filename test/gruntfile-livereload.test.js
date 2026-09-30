@@ -52,6 +52,69 @@ test('Gruntfile.js\'s livereload server declares liveCSS/liveImg: false', () => 
   });
 });
 
+test('Gruntfile.js\'s watch targets match file extensions case-insensitively', () => {
+  // lib/load-bundle.js's ASSET_FILE_PATTERN matches an asset's extension
+  // case-insensitively (production decides an asset's type by its bytes,
+  // never its name), but grunt-contrib-watch hands this whole options object
+  // straight to Gaze (`new Gaze(patterns, target.options, cb)` in its own
+  // tasks/watch.js), which matches a changed file against `files` via
+  // globule/minimatch — case-sensitively unless told otherwise. Verified
+  // directly against the installed globule (gaze's own matcher) outside this
+  // test file, since globule/gaze are transitive dependencies this suite
+  // shouldn't require on its own: `globule.isMatch(['**/*.png'],
+  // 'asset-logo.PNG', {})` is false, `{ nocase: true }` is true. Without
+  // this option, saving `asset-logo.PNG` on a case-sensitive filesystem
+  // (Linux; not macOS's default case-insensitive one, which never reproduces
+  // this) matched neither watch target, so nothing here ever noticed the
+  // save.
+  const config = captureGruntConfig();
+  assert.equal(config.watch.validate.options.nocase, true);
+  assert.equal(config.watch.livereload.options.nocase, true);
+});
+
+function invokeConnectLivereloadSnippet(hostHeader) {
+  const config = captureGruntConfig();
+  const middlewareStack = config.connect.livereload.options.middleware(null);
+  const lrSnippet = middlewareStack[1]; // [previewMiddleware(), lrSnippet, mountFolder(...)]
+  const res = {
+    headersSent: false,
+    setHeader: function () {},
+    getHeader: function () {},
+    removeHeader: function () {},
+    end: function (body) {
+      this.body = body;
+    },
+    write: function () {
+      return true;
+    },
+    writeHead: function () {},
+  };
+  const req = { headers: { host: hostHeader, accept: 'text/html' }, url: '/' };
+  lrSnippet(req, res, function next() {});
+  res.end('<html><body></body></html>');
+  return res.body;
+}
+
+test('the injected livereload <script> tag is valid for every Host isLocalHostname accepts, including bracketed IPv6', () => {
+  // connect-livereload's own index.js derives the injected script's host from
+  // `opt.hostname || req.headers.host.split(':')[0]` — without `hostname` set
+  // (Gruntfile.js's lrSnippet), a bracketed IPv6 Host like '[::1]:8080' splits
+  // on ':' to '[' (the first fragment), producing the broken
+  // `<script src="//[:35729/...">` — a URL the browser can never load,
+  // meaning livereload silently never connects at all when reached via
+  // '[::1]'. Reproduced directly against the real, installed
+  // connect-livereload before fixing: confirmed the broken output for the
+  // no-hostname-option config, and this output for the fixed one.
+  for (const host of ['localhost:8080', '127.0.0.1:8080', '[::1]:8080']) {
+    const body = invokeConnectLivereloadSnippet(host);
+    assert.match(
+      body,
+      /<script src="\/\/localhost:35729\/livereload\.js\?snipver=1"/,
+      'Host ' + host + ' must produce a loadable livereload <script> src'
+    );
+  }
+});
+
 test('src/index.html does not set window.LiveReloadOptions', () => {
   // A prior attempt at the fix above set this client-side instead. It broke
   // livereload outright: livereload.js only reads the injected

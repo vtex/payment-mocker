@@ -6,6 +6,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const { Writable } = require('node:stream');
+const { execFileSync } = require('node:child_process');
 const {
   normalizeIndexPath,
   createPreviewMiddleware,
@@ -382,6 +383,16 @@ test('createPreviewMiddleware: a contract-shaped asset inside the bundle is stil
   assert.equal(res.headers['Content-Type'], 'image/png');
 });
 
+test('createPreviewMiddleware: a bundle asset sets Cross-Origin-Resource-Policy: same-origin, closing a cross-site <img>/<link> embed', async () => {
+  // The Host allow-list only checks the Host header's value, not which page
+  // is asking — a cross-origin <link rel="stylesheet">/<img> embed sends the
+  // same Host: localhost a same-origin request would, and browsers don't gate
+  // that kind of "simple" resource load behind CORS at all. This header is
+  // what a browser actually refuses a cross-origin embed of.
+  const res = await invokeMiddleware(makeReq('asset-logo.png'));
+  assert.equal(res.headers['Cross-Origin-Resource-Policy'], 'same-origin');
+});
+
 test('createPreviewMiddleware: an asset-prefixed file with a non-image extension responds 404', async () => {
   // The `asset-` prefix alone used to be enough to pass the contract check —
   // extension wasn't considered — so a stray `asset-x.html` was served raw as
@@ -493,6 +504,57 @@ test('createPreviewMiddleware (icon route): an icon that is a symlink to an HTML
     fs.rmSync(evilTargetPath, { force: true });
   }
 });
+
+// mkfifo has no Node API and no Windows equivalent; these are skipped where
+// it isn't available rather than failing.
+function canMakeFifo() {
+  return process.platform !== 'win32';
+}
+
+test(
+  'createPreviewMiddleware (icon route): a FIFO named as the icon is rejected, not streamed (would hang fs.createReadStream)',
+  { skip: !canMakeFifo() && 'mkfifo is not available on this platform' },
+  async () => {
+    // Without the isFile() check, streamFile's fs.createReadStream would call
+    // open() on this FIFO, which blocks (in a libuv threadpool worker,
+    // per-request) waiting for a writer that this test never provides —
+    // exactly the same hang lib/validation-input.js's own isFile() check
+    // already guards the separate icon-for-validation read against. This
+    // proves the icon *route* (what the browser actually requests on every
+    // page load) has the same guard, not just the read validate() triggers.
+    const fifoPath = path.join(tempTemplateRoot, 'icon-fifo.png');
+    execFileSync('mkfifo', [fifoPath]);
+    try {
+      await withPreviewConfig({ bundleDir: 'reference', defaultLocale: 'pt-BR', icon: 'icon-fifo.png' }, async () => {
+        const res = await invokeMiddleware(makeIconReq('icon-fifo.png'));
+        assert.equal(res.statusCode, 403);
+      });
+    } finally {
+      fs.rmSync(fifoPath, { force: true });
+    }
+  }
+);
+
+test(
+  'createPreviewMiddleware: a FIFO named as a bundle asset is deferred to next(), not streamed (would hang fs.createReadStream)',
+  { skip: !canMakeFifo() && 'mkfifo is not available on this platform' },
+  async () => {
+    // Same treatment as a directory at this route (see the next() branch
+    // this reuses): the fake res stand-in is untouched (still its default
+    // 200) when next() runs instead of a route handler actually responding —
+    // the real server's next() falls through to the static src/ mount, which
+    // 404s a /template-bundle/asset-fifo.png path itself.
+    const config = readPreviewConfig(tempTemplateRoot);
+    const fifoPath = path.join(config.bundlePath, 'asset-fifo.png');
+    execFileSync('mkfifo', [fifoPath]);
+    try {
+      const res = await invokeMiddleware(makeReq('asset-fifo.png'));
+      assert.equal(res.statusCode, 200, 'next() must have been called, not a route handler responding directly');
+    } finally {
+      fs.rmSync(fifoPath, { force: true });
+    }
+  }
+);
 
 test('createPreviewMiddleware: sanitizeErrorMessage does not corrupt a URL quoted in a message (scheme:// looks like an absolute path)', async () => {
   // ABSOLUTE_PATH_PATTERN is deliberately generic, so a URL's `//` after the
@@ -636,6 +698,11 @@ test('createPreviewMiddleware (icon route): the configured icon path responds 20
   assert.equal(res.headers['Content-Type'], 'image/png');
 });
 
+test('createPreviewMiddleware (icon route): sets Cross-Origin-Resource-Policy: same-origin, closing a cross-site <img> embed', async () => {
+  const res = await invokeMiddleware(makeIconReq('icon.png'));
+  assert.equal(res.headers['Cross-Origin-Resource-Policy'], 'same-origin');
+});
+
 // The /preview.config.json route (servePreviewConfig) is the whole reason
 // the client-facing config is re-shaped instead of forwarding
 // readPreviewConfig()'s return value as-is: that function stamps an absolute
@@ -709,7 +776,10 @@ test('invalidateWrapCache does not leak Module objects into preview-middleware.j
   // require() unconditionally pushes every freshly loaded module onto its
   // parent's module.children, with no dedup — invalidateWrapCache's
   // delete-from-require.cache-then-require-again cycle (needed so an author
-  // editing lib/*.js while grunt is running sees the change without a
+  // editing load-bundle.js/preview-config.js/path-contained.js/validation-
+  // input.js — the four modules it names, NOT this file itself, which
+  // Gruntfile.js only ever requires once at startup and has no equivalent
+  // reload hook for — while grunt is running sees the change without a
   // restart) used to leave one more orphaned Module object here per call,
   // forever, since nothing ever removed the stale entry it replaced. This
   // runs on nearly every request (the config route alone triggers it via
