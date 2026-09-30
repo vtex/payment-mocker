@@ -221,3 +221,34 @@ test('loadBundle accepts a file exactly at its byte cap', () => {
   });
   assert.doesNotThrow(() => loadBundle(dir));
 });
+
+// The tests above only check the thrown message — they'd still pass even if
+// the size check ran AFTER fs.readFileSync (e.g. checked against the
+// returned buffer's length instead of a prior fs.statSync), which is not
+// what "rejected before being read into memory" actually claims. Proving the
+// order without a mocking library (node:test's own `mock` needs a newer
+// Node than this repo's README commits to; nothing else in this suite pulls
+// one in either): chmod the oversized file unreadable but still statable.
+// If the size check ever moved after the read, fs.readFileSync would throw
+// EACCES instead of ever reaching the size-limit message below.
+const canTestUnreadableFile = typeof process.getuid === 'function' && process.getuid() !== 0;
+
+test(
+  'loadBundle rejects an oversized asset via fs.statSync, proven by never calling fs.readFileSync on it',
+  { skip: !canTestUnreadableFile && 'requires a non-root POSIX user to make chmod 0o000 actually deny reads' },
+  () => {
+    const dir = makeBundleDir({
+      'index.html': '<p data-i18n="pay.title"></p>',
+      'style.css': 'p { color: red; }',
+      'i18n-pt-BR.json': '{"pay":{"title":"Pague"}}',
+    });
+    const assetPath = path.join(dir, 'asset-huge.png');
+    fs.writeFileSync(assetPath, Buffer.alloc(256 * 1024 + 1));
+    fs.chmodSync(assetPath, 0o000);
+    try {
+      assert.throws(() => loadBundle(dir), /asset-huge\.png at \d+ bytes, over the \d+-byte limit for each asset/);
+    } finally {
+      fs.chmodSync(assetPath, 0o644);
+    }
+  }
+);

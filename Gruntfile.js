@@ -48,7 +48,28 @@ module.exports = function(grunt) {
       },
       livereload: {
         options: {
-          livereload: LIVERELOAD_PORT
+          // liveCSS/liveImg: false — not just the port — because
+          // grunt-contrib-watch forwards this whole object straight to
+          // tiny-lr's constructor (see its lib/livereload.js), which stores
+          // it and includes `liveCSS`/`liveImg` in every reload message it
+          // broadcasts (tiny-lr's lib/client.js). livereload.js's browser
+          // client then honors whatever the message says (its own
+          // performReload only defaults to true when the field is missing
+          // entirely), which is what makes a .css/.png/.jpg/.jpeg change
+          // fall through to a full page reload instead of livereload's
+          // built-in "smart" swap — the only thing that reaches the payment
+          // template, since it lives inside the sandboxed
+          // #payment-template-iframe, a document that swap can never patch
+          // (it only ever touches <link>/<img> tags in the checkout shell's
+          // own document). This is a server-side setting for exactly that
+          // reason: a client-side `window.LiveReloadOptions` override was
+          // tried first and reverted — livereload.js only reads the
+          // <script src="//host:port/...livereload.js"> tag's own host/port
+          // when that global is absent, so setting it broke every reload,
+          // not just the CSS/image ones (the socket connected to
+          // `ws://null:35729`, since nothing there is what it extracts host
+          // from).
+          livereload: { port: LIVERELOAD_PORT, liveCSS: false, liveImg: false }
         },
         files: [
           'src/{,*/}*.html',

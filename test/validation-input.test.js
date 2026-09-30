@@ -92,7 +92,7 @@ test('buildValidationInput rejects an icon path that resolves to a directory ins
   }
 });
 
-test('buildValidationInput rejects an icon over CONTRACT.md\'s 50 KB limit without reading it in full', () => {
+test('buildValidationInput rejects an icon over CONTRACT.md\'s 50 KB limit', () => {
   const iconPath = path.join(templateRoot, 'big-icon.png');
   fs.writeFileSync(iconPath, Buffer.alloc(50 * 1024 + 1));
   try {
@@ -104,6 +104,34 @@ test('buildValidationInput rejects an icon over CONTRACT.md\'s 50 KB limit witho
     fs.rmSync(iconPath, { force: true });
   }
 });
+
+// The test above only checks the thrown message — it would still pass even
+// if the size check ran AFTER fs.readFileSync instead of via the prior
+// fs.statSync. Proving the order without a mocking library (see
+// test/load-bundle.test.js's own copy of this reasoning): chmod the
+// oversized icon unreadable but still statable/realpath-able. If the size
+// check ever moved after the read, fs.readFileSync would throw EACCES
+// instead of ever reaching the size-limit message below.
+const canTestUnreadableFile = typeof process.getuid === 'function' && process.getuid() !== 0;
+
+test(
+  'buildValidationInput rejects an oversized icon via fs.statSync, proven by never calling fs.readFileSync on it',
+  { skip: !canTestUnreadableFile && 'requires a non-root POSIX user to make chmod 0o000 actually deny reads' },
+  () => {
+    const iconPath = path.join(templateRoot, 'huge-icon.png');
+    fs.writeFileSync(iconPath, Buffer.alloc(50 * 1024 + 1));
+    fs.chmodSync(iconPath, 0o000);
+    try {
+      assert.throws(
+        () => buildValidationInput({ icon: 'huge-icon.png' }, STUB_TEMPLATE, templateRoot),
+        /icon "huge-icon\.png" is \d+ bytes, over the \d+-byte limit for the icon/
+      );
+    } finally {
+      fs.chmodSync(iconPath, 0o644);
+      fs.rmSync(iconPath, { force: true });
+    }
+  }
+);
 
 test('buildValidationInput accepts an icon exactly at the 50 KB byte cap', () => {
   const iconPath = path.join(templateRoot, 'exact-icon.png');
