@@ -383,14 +383,27 @@ test('createPreviewMiddleware: a contract-shaped asset inside the bundle is stil
   assert.equal(res.headers['Content-Type'], 'image/png');
 });
 
-test('createPreviewMiddleware: a bundle asset sets Cross-Origin-Resource-Policy: same-origin, closing a cross-site <img>/<link> embed', async () => {
-  // The Host allow-list only checks the Host header's value, not which page
-  // is asking — a cross-origin <link rel="stylesheet">/<img> embed sends the
-  // same Host: localhost a same-origin request would, and browsers don't gate
-  // that kind of "simple" resource load behind CORS at all. This header is
-  // what a browser actually refuses a cross-origin embed of.
+test('createPreviewMiddleware: a bundle asset does NOT set Cross-Origin-Resource-Policy (it must stay loadable by the sandboxed iframe)', async () => {
+  // A previous round set `Cross-Origin-Resource-Policy: same-origin` here to
+  // close a cross-site <img>/<link> embed of this route (the Host allow-list
+  // only checks the header's value, not which page is asking, so it didn't
+  // cover that). It looked right on paper and broke the preview outright:
+  // the wrapped template document that fetches this route runs inside
+  // `<iframe sandbox="allow-scripts">` with no `allow-same-origin`, which
+  // gives it a unique **opaque** origin — one that never equals anything,
+  // not even itself. `same-origin` CORP blocks every such fetch
+  // unconditionally. Confirmed against a real, launched Chromium (via
+  // Playwright) before reverting this: style.css, both /lib/ scripts, and
+  // every bundle asset all failed with
+  // `net::ERR_BLOCKED_BY_RESPONSE.NotSameOrigin`, and the template rendered
+  // with no styles, no runtime, no locale switching, no height sizing — the
+  // whole feature this repo exists for, silently broken.
+  //
+  // The header stays on the icon route (see the icon-route test below),
+  // which is fetched by the top-level checkout shell page itself — an
+  // ordinary same-origin document, not this one.
   const res = await invokeMiddleware(makeReq('asset-logo.png'));
-  assert.equal(res.headers['Cross-Origin-Resource-Policy'], 'same-origin');
+  assert.equal(res.headers['Cross-Origin-Resource-Policy'], undefined);
 });
 
 test('createPreviewMiddleware: an asset-prefixed file with a non-image extension responds 404', async () => {
@@ -1101,6 +1114,18 @@ test('createPreviewMiddleware (resolve-locale script route): GET serves the real
   assert.equal(res.body(), onDisk);
 });
 
+test('createPreviewMiddleware (resolve-locale script route): does NOT set Cross-Origin-Resource-Policy (loaded by the sandboxed, opaque-origin iframe)', async () => {
+  // Same reasoning as the bundle-asset test above: this script is one of the
+  // two <script src> tags the wrapped template document itself loads, and
+  // that document's opaque origin (from `sandbox="allow-scripts"` with no
+  // `allow-same-origin`) makes `same-origin` CORP block it unconditionally.
+  const res = await invokeMiddleware({
+    url: RESOLVE_LOCALE_SCRIPT_PATH,
+    headers: { host: 'localhost:8080' },
+  });
+  assert.equal(res.headers['Cross-Origin-Resource-Policy'], undefined);
+});
+
 test('createPreviewMiddleware (template-runtime script route): a non-GET/HEAD method responds 405', async () => {
   const res = await invokeMiddleware({
     url: TEMPLATE_RUNTIME_SCRIPT_PATH,
@@ -1125,8 +1150,17 @@ test('createPreviewMiddleware (template-runtime script route): GET serves the re
   assert.equal(res.body(), onDisk);
 });
 
-// Gruntfile.js binds hostname: '*' (every interface, not just loopback), and
-// none of this middleware's routes require auth — they hand out the
+test('createPreviewMiddleware (template-runtime script route): does NOT set Cross-Origin-Resource-Policy (loaded by the sandboxed, opaque-origin iframe)', async () => {
+  // Same reasoning as the resolve-locale route test above.
+  const res = await invokeMiddleware({
+    url: TEMPLATE_RUNTIME_SCRIPT_PATH,
+    headers: { host: 'localhost:8080' },
+  });
+  assert.equal(res.headers['Cross-Origin-Resource-Policy'], undefined);
+});
+
+// Gruntfile.js binds hostname: '127.0.0.1' (loopback only), and none of this
+// middleware's routes require auth — they hand out the
 // partner's own unpublished bundle, icon and validator findings. A non-local
 // Host header is rejected uniformly, before any route-specific handler runs,
 // which also closes a DNS-rebinding path: a browser page whose hostname a DNS
@@ -1220,13 +1254,13 @@ test('createPreviewMiddleware: the wrapped index sets a sandbox CSP header, inde
   // The wrapped document's real isolation normally comes from the parent
   // checkout shell's `<iframe sandbox="allow-scripts">` attribute
   // (src/assets/libs/template-host.js), which only applies while this
-  // response is loaded *as* that iframe. Grunt binds `hostname: '*'`
-  // (Gruntfile.js), so the same URL is reachable directly, as a top-level
-  // navigation, by anything on the same network — where no iframe attribute
-  // exists to sandbox it. A `sandbox` directive can only be delivered via
-  // this header (the wrapped document's own <meta> CSP, asserted on above,
-  // cannot carry it), so this is the one thing that still confines it in
-  // that case.
+  // response is loaded *as* that iframe. The same URL is also reachable
+  // directly, as a top-level navigation — Grunt now binds loopback only
+  // (Gruntfile.js), but that still includes every browser tab and local
+  // process on this machine, none of which goes through the iframe
+  // attribute above. A `sandbox` directive can only be delivered via this
+  // header (the wrapped document's own <meta> CSP, asserted on above, cannot
+  // carry it), so this is the one thing that still confines it in that case.
   return invokeMiddleware(makeReq('')).then((res) => {
     assert.equal(res.statusCode, 200);
     assert.equal(res.headers['Content-Security-Policy'], 'sandbox allow-scripts');

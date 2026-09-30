@@ -126,12 +126,25 @@ module.exports = function(grunt) {
           // host: '127.0.0.1' — tiny-lr (which this object is forwarded to
           // wholesale) defaults its own `host` to '*' independently of
           // connect's own hostname above, and otherwise broadcasts every
-          // saved file's path to any websocket client that connects to this
-          // port from the LAN. A literal IP, not 'localhost': same reasoning
-          // as connect.options.hostname's own copy of this comment above —
-          // and lrSnippet's `hostname` (this file, near the top) is pinned to
-          // this exact address so the injected <script> tag always points at
-          // whatever this is actually bound to.
+          // saved file's path to any websocket client on the LAN able to
+          // connect to this port. A literal IP, not 'localhost': same
+          // reasoning as connect.options.hostname's own copy of this comment
+          // above — and lrSnippet's `hostname` (this file, near the top) is
+          // pinned to this exact address so the injected <script> tag always
+          // points at whatever this is actually bound to.
+          //
+          // What this does NOT close: tiny-lr's own HTTP routes (GET
+          // /livereload/changed, /kill, and the WebSocket upgrade itself)
+          // have no Origin check of their own (read in its lib/server.js),
+          // and loopback binding only keeps out other MACHINES on the LAN —
+          // a malicious page open in the SAME browser on THIS machine can
+          // still open a WebSocket to ws://127.0.0.1:35729/livereload (the
+          // same-origin policy doesn't cover WebSocket connections) or hit
+          // GET .../kill directly. Low impact — it leaks saved files' repo-
+          // relative paths and can force a reload or stop livereload, not
+          // read bundle content — and tiny-lr exposes no hook to add an
+          // Origin check of its own short of patching it, so left as a known
+          // gap rather than fixed here.
           livereload: { port: LIVERELOAD_PORT, host: '127.0.0.1', liveCSS: false, liveImg: false }
         },
         files: [
