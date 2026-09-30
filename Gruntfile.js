@@ -8,16 +8,21 @@ var path = require('path');
 var LIVERELOAD_PORT = 35729;
 var lrSnippet = require('connect-livereload')({
   port: LIVERELOAD_PORT,
-  // hostname: 'localhost', not left to connect-livereload's own default —
+  // hostname: '127.0.0.1', not left to connect-livereload's own default —
   // without it, the injected <script> tag's host comes from
   // `req.headers.host.split(':')[0]` (connect-livereload's index.js), which
   // breaks for the bracketed IPv6 form isLocalHostname accepts
   // (lib/preview-middleware.js): splitting 'Host: [::1]:8080' on ':' gives
   // '[' as the "host", producing the broken `<script src="//[:35729/...">`.
-  // Forcing 'localhost' here sidesteps that entirely — every hostname
-  // isLocalHostname accepts already resolves 'localhost' locally too, so
-  // this never points the injected script at a host the browser can't reach.
-  hostname: 'localhost'
+  // A literal IP instead of the name 'localhost': Node's own `.listen(port,
+  // 'localhost')` resolves that name to a single address — on some
+  // systems/setups, IPv6's `::1` — and binds only that one, so a browser
+  // whose own 'localhost' resolution picks the other family could fail to
+  // connect at all rather than just falling back. Pointing this at literally
+  // whatever address the livereload server itself binds (`host: '127.0.0.1'`
+  // in watch.livereload.options.livereload below) removes that ambiguity
+  // entirely instead of relying on both resolving the name the same way.
+  hostname: '127.0.0.1'
 });
 
 var mountFolder = function(connect, dir) {
@@ -34,7 +39,29 @@ module.exports = function(grunt) {
     connect: {
       options: {
         port: 8080,
-        hostname: '*'
+        // hostname: '127.0.0.1', not '*' (every interface): this server
+        // hands out the partner's own unpublished bundle, icon and
+        // validator findings with no authentication of any kind, and
+        // lib/preview-middleware.js's own Host-header allow-list
+        // (isLocalHostname) only ever closed DNS rebinding — it can't stop a
+        // non-browser client on the LAN from setting Host: localhost itself,
+        // since Host is just a request header, not a property of which
+        // interface the connection actually arrived on. Binding the socket
+        // itself to loopback is what actually keeps such a client out; it
+        // also means previewing from another device (e.g. a phone) on the
+        // same network no longer works, but that already didn't work once
+        // the Host allow-list shipped — every route the previewed page
+        // depends on already rejected that device's own real Host header.
+        //
+        // A literal IP, not the name 'localhost': `.listen(port,
+        // 'localhost')` resolves that name to a single address before
+        // binding — confirmed against a real server on this machine, it came
+        // back as IPv6's `::1` only, leaving `http://127.0.0.1:8080/`
+        // (an address plenty of tooling and muscle memory reaches for)
+        // unable to connect at all rather than merely not preferred. Pinning
+        // the literal address sidesteps whatever a given OS/Node version
+        // happens to resolve the name to.
+        hostname: '127.0.0.1'
       },
       livereload: {
         options: {
@@ -96,7 +123,16 @@ module.exports = function(grunt) {
           // not just the CSS/image ones (the socket connected to
           // `ws://null:35729`, since nothing there is what it extracts host
           // from).
-          livereload: { port: LIVERELOAD_PORT, liveCSS: false, liveImg: false }
+          // host: '127.0.0.1' — tiny-lr (which this object is forwarded to
+          // wholesale) defaults its own `host` to '*' independently of
+          // connect's own hostname above, and otherwise broadcasts every
+          // saved file's path to any websocket client that connects to this
+          // port from the LAN. A literal IP, not 'localhost': same reasoning
+          // as connect.options.hostname's own copy of this comment above —
+          // and lrSnippet's `hostname` (this file, near the top) is pinned to
+          // this exact address so the injected <script> tag always points at
+          // whatever this is actually bound to.
+          livereload: { port: LIVERELOAD_PORT, host: '127.0.0.1', liveCSS: false, liveImg: false }
         },
         files: [
           'src/{,*/}*.html',

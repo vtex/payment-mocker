@@ -47,9 +47,31 @@ test('Gruntfile.js\'s livereload server declares liveCSS/liveImg: false', () => 
   const config = captureGruntConfig();
   assert.deepEqual(config.watch.livereload.options.livereload, {
     port: 35729,
+    host: '127.0.0.1',
     liveCSS: false,
     liveImg: false,
   });
+});
+
+test('Gruntfile.js binds the dev server and the livereload server to loopback only, by literal IP', () => {
+  // lib/preview-middleware.js's own Host-header allow-list (isLocalHostname)
+  // can only ever close DNS rebinding — Host is just a request header, not a
+  // property of which interface a connection arrived on, so it can never
+  // tell a non-browser LAN client's forged `Host: localhost` apart from a
+  // real local request. Actually keeping such a client off the wire needs
+  // the sockets themselves bound to loopback: connect's own `hostname`
+  // option, and tiny-lr's separate `host` (grunt-contrib-watch forwards
+  // watch.livereload.options.livereload wholesale to tiny-lr's constructor,
+  // which defaults `host` to '*' independently of connect's setting).
+  //
+  // A literal IP, not the name 'localhost': confirmed against a real server
+  // on this machine that `.listen(port, 'localhost')` resolved to IPv6's
+  // `::1` only, leaving 127.0.0.1 (an address plenty of tooling reaches for)
+  // unable to connect at all — pinning the literal address sidesteps
+  // whatever a given OS/Node happens to resolve the name to.
+  const config = captureGruntConfig();
+  assert.equal(config.connect.options.hostname, '127.0.0.1');
+  assert.equal(config.watch.livereload.options.livereload.host, '127.0.0.1');
 });
 
 test('Gruntfile.js\'s watch targets match file extensions case-insensitively', () => {
@@ -109,7 +131,7 @@ test('the injected livereload <script> tag is valid for every Host isLocalHostna
     const body = invokeConnectLivereloadSnippet(host);
     assert.match(
       body,
-      /<script src="\/\/localhost:35729\/livereload\.js\?snipver=1"/,
+      /<script src="\/\/127\.0\.0\.1:35729\/livereload\.js\?snipver=1"/,
       'Host ' + host + ' must produce a loadable livereload <script> src'
     );
   }
