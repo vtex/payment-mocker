@@ -6,7 +6,12 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const { validate } = require('@vtex/payment-templates-core');
-const { buildValidationInput, withExtraFindings } = require('../lib/validation-input');
+const {
+  buildValidationInput,
+  finishValidationResult,
+  jpegDimensionsNeedUnreadBytes,
+  withExtraFindings,
+} = require('../lib/validation-input');
 
 /**
  * lib/validation-input.js resolves `config.icon` against a `templateRoot`
@@ -280,4 +285,98 @@ test('withExtraFindings appends icon findings after validate()\'s own and turns 
   assert.deepEqual(withExtraFindings({ ok: true, errors: [own] }, [icon]), { ok: false, errors: [own, icon] });
   const untouched = { ok: true, errors: [own] };
   assert.equal(withExtraFindings(untouched, []), untouched);
+});
+
+// A JPEG whose start-of-frame (SOF0, 100x100 px) sits behind one APP1
+// (EXIF-shaped) segment of `payloadBytes` bytes — past the icon's 50 KB read
+// cap once that is over ~51 KB. `sofBeforeScan: false` puts a start-of-scan
+// marker BEFORE the SOF instead, a real defect the core must keep reporting.
+function jpegWithLateSof(payloadBytes, options) {
+  const sof = Buffer.from([0xff, 0xc0, 0x00, 0x0b, 0x08, 0x00, 0x64, 0x00, 0x64, 0x01, 0x01, 0x11, 0x00]);
+  const sos = Buffer.from([0xff, 0xda, 0x00, 0x08, 0x01, 0x01, 0x00, 0x00, 0x3f, 0x00]);
+  const app1 = Buffer.concat([
+    Buffer.from([0xff, 0xe1, ((payloadBytes + 2) >> 8) & 0xff, (payloadBytes + 2) & 0xff]),
+    Buffer.alloc(payloadBytes, 0x41),
+  ]);
+  const early = options && options.scanBeforeSof ? [sos, Buffer.alloc(payloadBytes, 0x41)] : [app1];
+  return Buffer.concat([Buffer.from([0xff, 0xd8])].concat(early, [sof, Buffer.from([0xff, 0xd9])]));
+}
+
+const UNREADABLE_DIMENSIONS = /Could not read the pixel dimensions of/;
+
+async function validateIcon(name, contents) {
+  return withIconFile(name, contents, async () => {
+    const { input, findings } = buildValidationInput({ icon: name }, STUB_TEMPLATE, templateRoot);
+    assert.deepEqual(findings, []);
+    const raw = await validate({ icon: input.icon });
+    return { raw, finished: finishValidationResult(raw, input, findings) };
+  });
+}
+
+test('an oversized JPEG icon whose frame header lies past the read cap gets maxFileSize, not a false "could not read the pixel dimensions" finding', async () => {
+  const { raw, finished } = await validateIcon('late-sof.jpg', jpegWithLateSof(60000));
+  // The premise: validate() alone, on the zero-padded prefix, does report it.
+  assert.ok(raw.errors.some((finding) => UNREADABLE_DIMENSIONS.test(finding.message)), JSON.stringify(raw.errors));
+  assert.ok(
+    finished.errors.some((finding) => finding.rule === 'maxFileSize' && /late-sof\.jpg is 60021 bytes, over the 51200-byte limit/.test(finding.message)),
+    JSON.stringify(finished.errors)
+  );
+  assert.ok(!finished.errors.some((finding) => UNREADABLE_DIMENSIONS.test(finding.message)), JSON.stringify(finished.errors));
+  assert.equal(finished.ok, false);
+});
+
+test('a truncated icon keeps its real imageSafety findings: not an image at all, or a JPEG whose own prefix ends the walk', async () => {
+  const notAnImage = await validateIcon('big-text.png', Buffer.alloc(ICON_CAP + 100, 0x41));
+  assert.ok(
+    notAnImage.finished.errors.some((finding) => finding.rule === 'imageSafety' && /big-text\.png is not a PNG, JPEG or WebP image/.test(finding.message)),
+    JSON.stringify(notAnImage.finished.errors)
+  );
+  assert.ok(notAnImage.finished.errors.some((finding) => finding.rule === 'maxFileSize'));
+
+  // Start of scan before any SOF, inside the bytes that WERE read: a real
+  // defect however big the file is, so its finding must stay.
+  const scanFirst = await validateIcon('scan-first.jpg', jpegWithLateSof(60000, { scanBeforeSof: true }));
+  assert.ok(
+    scanFirst.finished.errors.some((finding) => UNREADABLE_DIMENSIONS.test(finding.message)),
+    JSON.stringify(scanFirst.finished.errors)
+  );
+});
+
+test('an in-cap JPEG icon without a readable frame header keeps its dimension finding — only a truncated one is ever re-checked', async () => {
+  // SOF behind a 20 KB APP1 but cut off by the file itself: nothing was
+  // left unread, so the finding is real.
+  const contents = jpegWithLateSof(20000).subarray(0, 20000 + 6 + 4);
+  const { finished } = await validateIcon('short.jpg', contents);
+  assert.ok(finished.errors.some((finding) => UNREADABLE_DIMENSIONS.test(finding.message)), JSON.stringify(finished.errors));
+});
+
+test('jpegDimensionsNeedUnreadBytes: true only when the marker walk leaves the prefix before a verdict', () => {
+  const full = jpegWithLateSof(60000);
+  assert.equal(jpegDimensionsNeedUnreadBytes(full.subarray(0, ICON_CAP)), true, 'APP1 runs past the cap');
+  assert.equal(jpegDimensionsNeedUnreadBytes(full), false, 'the whole file: SOF read in full');
+  assert.equal(jpegDimensionsNeedUnreadBytes(full.subarray(0, 60006 + 5)), true, 'SOF frame header cut mid-way');
+  assert.equal(jpegDimensionsNeedUnreadBytes(jpegWithLateSof(60000, { scanBeforeSof: true }).subarray(0, ICON_CAP)), false, 'SOS before SOF');
+  assert.equal(jpegDimensionsNeedUnreadBytes(Buffer.from([0xff, 0xd8, 0xff, 0xe1, 0x00, 0x01])), false, 'segment length under 2');
+  assert.equal(jpegDimensionsNeedUnreadBytes(Buffer.from([0xff, 0xd8, 0xff, 0xe1, 0x00])), true, 'segment length itself cut off');
+});
+
+test('finishValidationResult drops nothing when no entry was truncated, and still appends the extra findings', () => {
+  const dims = { rule: 'imageSafety', severity: 'error', message: 'Could not read the pixel dimensions of i.jpg from its JPEG header.', ref: { file: 'i.jpg' } };
+  const icon = { name: 'i.jpg', size: 4, buffer: new Uint8Array(4) };
+  const extra = { rule: 'icon', severity: 'error', message: 'e' };
+  assert.deepEqual(finishValidationResult({ ok: false, errors: [dims] }, { icon }, [extra]), { ok: false, errors: [dims, extra] });
+});
+
+test('an icon over the 4 MB validation ceiling is reported as over the size limit, not as unreadable — the icon route serves it fine', () => {
+  const name = 'giant-icon.png';
+  const iconPath = path.join(templateRoot, name);
+  fs.writeFileSync(iconPath, PNG_SIGNATURE);
+  fs.truncateSync(iconPath, 4 * 1024 * 1024 + 1); // sparse: no 4 MB write
+  try {
+    const result = buildValidationInput({ icon: name }, STUB_TEMPLATE, templateRoot);
+    assertIconFinding(result, /icon giant-icon\.png is 4194305 bytes, over the 51200-byte size limit for the icon and too large for the local validator to inspect/);
+    assert.doesNotMatch(result.findings[0].message, /could not be read/);
+  } finally {
+    fs.rmSync(iconPath, { force: true });
+  }
 });

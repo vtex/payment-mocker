@@ -3,7 +3,7 @@
 const { validate } = require('@vtex/payment-templates-core');
 const { loadBundleForValidation } = require('../lib/load-bundle');
 const { readPreviewConfig } = require('../lib/preview-config');
-const { buildValidationInput, withExtraFindings } = require('../lib/validation-input');
+const { buildValidationInput, finishValidationResult } = require('../lib/validation-input');
 
 async function main() {
   const config = readPreviewConfig();
@@ -11,10 +11,14 @@ async function main() {
   // `findings`: problems with the configured icon that kept it out of
   // `input` (see buildValidationInput) — merged in so they fail this run and
   // print below exactly like validate()'s own errors, while validate() still
-  // reports on everything else.
+  // reports on everything else. finishValidationResult is the same merge the
+  // preview's /template-validation.json route does, including dropping the
+  // false "could not read the pixel dimensions" finding a truncated JPEG
+  // would otherwise get (see withoutTruncationArtifacts), so this run and
+  // the banner always agree.
   const { input, findings } = buildValidationInput(config, template);
 
-  const result = withExtraFindings(await validate(input), findings);
+  const result = finishValidationResult(await validate(input), input, findings);
 
   if (result.ok) {
     console.log('validate: ok — template at template/' + config.bundleDir + ' passed all applicable rules.');

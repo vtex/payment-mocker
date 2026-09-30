@@ -11,6 +11,7 @@ const {
   normalizeIndexPath,
   createPreviewMiddleware,
   sanitizeErrorMessage,
+  _sanitizeErrorMessageForRoot,
   BUNDLE_PREFIX,
   ICON_PREFIX,
   PREVIEW_CONFIG_PATH,
@@ -615,8 +616,8 @@ test('sanitizeErrorMessage redacts a path whose second word starts with an accen
 // ("... contains files ..."), so the match still stops at that space and a
 // path fragment past it can still reach the client. sanitizeErrorMessage's
 // known-path pass (see the o'brien/Projects(old)x tests further down) now
-// closes this for any path under TEMPLATE_ROOT, the bundle, the home
-// directory or the cwd; this pins what's left — a path under none of them,
+// closes this for any path under the repository root or the bundle; this
+// pins what's left — a path under neither,
 // which only the generic pattern ever sees — so a future change to that
 // regex either improves it consciously or is caught updating this
 // assertion, rather than silently drifting.
@@ -1427,11 +1428,58 @@ test('createPreviewMiddleware (validation route): an oversized icon is reported 
   }
 });
 
+// A JPEG icon over its 50 KB cap whose SOF (100x100 px) lies behind a
+// 60000-byte APP1 segment — past the cap, so only zero padding stands where
+// validate() looks for the frame header.
+function jpegIconWithLateSof() {
+  return Buffer.concat([
+    Buffer.from([0xff, 0xd8, 0xff, 0xe1, (60002 >> 8) & 0xff, 60002 & 0xff]),
+    Buffer.alloc(60000, 0x41),
+    Buffer.from([0xff, 0xc0, 0x00, 0x0b, 0x08, 0x00, 0x64, 0x00, 0x64, 0x01, 0x01, 0x11, 0x00, 0xff, 0xd9]),
+  ]);
+}
+
+test('createPreviewMiddleware (validation route): an oversized JPEG icon with its frame header past the read cap gets maxFileSize only, no false dimension finding', async () => {
+  const iconPath = path.join(tempTemplateRoot, 'late-sof.jpg');
+  fs.writeFileSync(iconPath, jpegIconWithLateSof());
+  try {
+    await withPreviewConfig({ bundleDir: 'reference', defaultLocale: 'pt-BR', icon: 'late-sof.jpg' }, async () => {
+      const body = JSON.parse((await invokeMiddleware(makeValidationReq())).body());
+      assert.equal(body.ok, false);
+      assert.ok(
+        body.errors.some((finding) => finding.rule === 'maxFileSize' && /late-sof\.jpg is 60021 bytes, over the 51200-byte limit for each icon/.test(finding.message)),
+        JSON.stringify(body.errors)
+      );
+      assert.ok(!body.errors.some((finding) => /Could not read the pixel dimensions/.test(finding.message)), JSON.stringify(body.errors));
+    });
+  } finally {
+    fs.rmSync(iconPath, { force: true });
+  }
+});
+
+test('createPreviewMiddleware (validation route): a truncated icon that is not an image at all keeps its real imageSafety finding', async () => {
+  const iconPath = path.join(tempTemplateRoot, 'big-text.png');
+  fs.writeFileSync(iconPath, Buffer.alloc(60000, 0x41));
+  try {
+    await withPreviewConfig({ bundleDir: 'reference', defaultLocale: 'pt-BR', icon: 'big-text.png' }, async () => {
+      const body = JSON.parse((await invokeMiddleware(makeValidationReq())).body());
+      assert.ok(
+        body.errors.some((finding) => finding.rule === 'imageSafety' && /big-text\.png is not a PNG, JPEG or WebP image/.test(finding.message)),
+        JSON.stringify(body.errors)
+      );
+      assert.ok(body.errors.some((finding) => finding.rule === 'maxFileSize'), JSON.stringify(body.errors));
+    });
+  } finally {
+    fs.rmSync(iconPath, { force: true });
+  }
+});
+
 // ABSOLUTE_PATH_PATTERN's segment stops at the first quote or paren, so a
 // real name containing one used to leave everything after it un-redacted.
 // sanitizeErrorMessage now strips the server's KNOWN absolute paths (the
-// optional second argument, plus TEMPLATE_ROOT/os.homedir()/process.cwd()
-// always) by literal substring first.
+// optional second argument, plus the repository root always) by literal
+// substring first. The paths below lie outside the repository, so they keep
+// the older last-segment replacement (see knownPathReplacements).
 test('sanitizeErrorMessage strips a known path containing an apostrophe whole (o\'brien)', () => {
   const bundlePath = "/Users/o'brien/Documents/payment-mocker/template/reference";
   assert.equal(
@@ -1465,20 +1513,93 @@ test('sanitizeErrorMessage strips a known Windows path in either separator spell
   );
 });
 
-test('sanitizeErrorMessage replaces the home directory with ~, not with its last segment (usually the username)', () => {
-  // os.homedir() reads $HOME on POSIX, so pointing it at an o'brien-shaped
-  // directory needs no mocking library.
-  const originalHome = process.env.HOME;
-  process.env.HOME = "/Users/o'brien";
-  try {
-    assert.equal(
-      sanitizeErrorMessage("Cannot read /Users/o'brien/.npmrc (Projects(old)x)"),
-      'Cannot read ~/.npmrc (Projects(old)x)'
-    );
-  } finally {
-    if (originalHome === undefined) delete process.env.HOME;
-    else process.env.HOME = originalHome;
-  }
+// There used to be a test here pinning os.homedir() -> `~`. That special
+// case is gone on purpose (see knownPathReplacements in
+// lib/preview-middleware.js): the one always-known root is now the
+// repository itself, rewritten to repo-relative paths, and a path elsewhere
+// under the home directory is an ordinary outside-the-repository path for the
+// generic pattern. What that pattern still guarantees for such a path — the
+// username is gone — is pinned here instead, together with the o'brien case
+// it can't handle (the same documented gap as `jane doe` above), so a change
+// to either is a conscious one.
+test('sanitizeErrorMessage: a path outside the repository (e.g. elsewhere under the home directory) still loses its username', () => {
+  assert.equal(sanitizeErrorMessage('Cannot read /Users/alice/.npmrc (Projects(old)x)'), 'Cannot read .npmrc (Projects(old)x)');
+  assert.equal(sanitizeErrorMessage('Cannot read C:\\Users\\alice\\.npmrc now'), 'Cannot read .npmrc now');
+  // Known gap, outside the repository only: the segment stops at the `'`.
+  assert.equal(sanitizeErrorMessage("Cannot read /Users/o'brien/.npmrc"), "Cannot read o'brien/.npmrc");
+});
+
+// The repository root is the one always-known path: everything under it is
+// rewritten RELATIVE to it, whole. These use the real root (TEMPLATE_ROOT's
+// parent, the same thing the function derives), so they exercise exactly
+// what the running server does.
+const REAL_REPO_ROOT = path.dirname(REAL_TEMPLATE_ROOT);
+
+test('sanitizeErrorMessage rewrites a path under the repository root to a repo-relative one', () => {
+  assert.equal(
+    sanitizeErrorMessage('Bundle at ' + path.join(REAL_REPO_ROOT, 'template', 'reference') + ' contains files outside the template contract: notes.txt.'),
+    'Bundle at template/reference contains files outside the template contract: notes.txt.'
+  );
+  assert.equal(
+    sanitizeErrorMessage("Cannot find module '" + path.join(REAL_REPO_ROOT, 'node_modules', '@vtex', 'x', 'index.js') + "'"),
+    "Cannot find module 'node_modules/@vtex/x/index.js'"
+  );
+  // The root itself, even at the end of a sentence, is the repository
+  // folder's name — never `.`, which would read `..` there.
+  assert.equal(sanitizeErrorMessage('Running in ' + REAL_REPO_ROOT + '.'), 'Running in ' + path.basename(REAL_REPO_ROOT) + '.');
+  // Boundary semantics kept: a sibling that merely starts with the root's
+  // spelling, or a longer path that ends with it, is not under it.
+  assert.equal(sanitizeErrorMessage('open ' + REAL_REPO_ROOT + '2/a/b.js'), 'open b.js');
+  assert.equal(sanitizeErrorMessage('open /private' + REAL_REPO_ROOT + '/a/b.js'), 'open b.js');
+});
+
+test('sanitizeErrorMessage protects the whole rest of an in-repository path from the generic pattern', () => {
+  // Before: only the known prefix was held back, so the generic pattern saw
+  // the rest — `/x/y.png` right after `)` or `-` — as a fresh absolute path
+  // and collapsed it onto what was before (`ref(1)y.png`, `a-c`).
+  assert.equal(
+    sanitizeErrorMessage("open '" + REAL_REPO_ROOT + "/template/ref(1)/x/y.png'"),
+    "open 'template/ref(1)/x/y.png'"
+  );
+  assert.equal(sanitizeErrorMessage('open ' + REAL_REPO_ROOT + '/a-/b/c'), 'open a-/b/c');
+  // Finder's duplicate-folder shape, space and all.
+  assert.equal(
+    sanitizeErrorMessage("open '" + REAL_REPO_ROOT + "/template/foo (1)/x/y.png'"),
+    "open 'template/foo (1)/x/y.png'"
+  );
+});
+
+test('sanitizeErrorMessage leaves prose punctuation and a :line:column suffix outside the protected path', () => {
+  assert.equal(sanitizeErrorMessage('at ' + REAL_REPO_ROOT + '/lib/x.js:12:3'), 'at lib/x.js:12:3');
+  assert.equal(sanitizeErrorMessage('at fn (' + REAL_REPO_ROOT + '/lib/x.js:12:3)'), 'at fn (lib/x.js:12:3)');
+  assert.equal(sanitizeErrorMessage('(see ' + REAL_REPO_ROOT + '/lib/x.js)'), '(see lib/x.js)');
+  assert.equal(sanitizeErrorMessage('failed: ' + REAL_REPO_ROOT + '/lib/x.js, then stopped.'), 'failed: lib/x.js, then stopped.');
+  assert.equal(sanitizeErrorMessage(REAL_REPO_ROOT + '/lib/x.js (see above)'), 'lib/x.js (see above)');
+});
+
+// A repository root spelled with the very characters the generic pattern
+// cuts at. Through the test-only seam that takes the root as an argument
+// (rather than mocking os/fs or moving the checkout); sanitizeErrorMessage
+// itself is that same function with the real root.
+test("sanitizeErrorMessage handles a repository root containing an apostrophe or parentheses (o'brien, Projects(old)x)", () => {
+  const obrien = "/Users/o'brien/Documents/payment-mocker";
+  assert.equal(
+    _sanitizeErrorMessageForRoot("ENOENT: no such file or directory, open '" + obrien + "/template/reference/index.html'", [], obrien),
+    "ENOENT: no such file or directory, open 'template/reference/index.html'"
+  );
+  const projects = '/Users/me/Projects(old)x/payment-mocker';
+  assert.equal(
+    _sanitizeErrorMessageForRoot('Bundle at ' + projects + '/template/reference has x', [projects + '/template/reference'], projects),
+    'Bundle at template/reference has x'
+  );
+  assert.equal(
+    _sanitizeErrorMessageForRoot('at (' + projects + '/lib/x.js:1:2) and ' + projects + '.', [], projects),
+    'at (lib/x.js:1:2) and payment-mocker.'
+  );
+  // Windows spellings of the same root, either separator.
+  const windowsRoot = "C:\\Users\\o'brien\\payment-mocker";
+  assert.equal(_sanitizeErrorMessageForRoot('open ' + windowsRoot + '\\lib\\x.js now', [], windowsRoot), 'open lib\\x.js now');
+  assert.equal(_sanitizeErrorMessageForRoot("open C:/Users/o'brien/payment-mocker/lib/x.js now", [], windowsRoot), 'open lib/x.js now');
 });
 
 test('sanitizeErrorMessage only replaces a known path at a path boundary, never from the middle of a longer one', () => {

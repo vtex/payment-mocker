@@ -18,19 +18,32 @@ const { spawnSync } = require('node:child_process');
  */
 const REPO_ROOT = path.join(__dirname, '..');
 
+// Files another test file temporarily writes INTO the real, checked-in
+// template/ — today only test/preview-middleware.test.js's stray notes.txt in
+// template/reference (its REAL_STRAY_FILE_PATH, the one way to exercise the
+// zero-argument production path; every other write in the suite goes to a
+// temp copy). `node --test` runs test files in parallel processes, so the
+// copy below can run while that file exists, or while it is being created or
+// deleted. Copying it and removing it afterwards, as this used to, was not
+// enough: fs.cpSync could list notes.txt and then find it gone by the time it
+// stat'd/copied it, throwing ENOENT out of this whole file's `before`. The
+// `filter` below rejects these names by basename alone — cpSync calls it
+// before it ever stats or opens an entry, so a scratch file appearing,
+// vanishing or half-written mid-copy is never touched at all. Add a name here
+// if another test starts writing into the real template/.
+const TEST_SCRATCH_NAMES = new Set(['notes.txt']);
+
+function skipTestScratch(source) {
+  return !TEST_SCRATCH_NAMES.has(path.basename(source));
+}
+
 let tempRoot;
 
 test.before(() => {
   tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'payment-mocker-validate-reference-'));
   for (const dir of ['scripts', 'lib', 'template']) {
-    fs.cpSync(path.join(REPO_ROOT, dir), path.join(tempRoot, dir), { recursive: true });
+    fs.cpSync(path.join(REPO_ROOT, dir), path.join(tempRoot, dir), { recursive: true, filter: skipTestScratch });
   }
-  // test/preview-middleware.test.js briefly writes a stray notes.txt into the
-  // REAL template/reference (its REAL_STRAY_FILE_PATH — the one way to
-  // exercise the zero-argument production path), and `node --test` runs test
-  // files in parallel processes, so this copy can catch it mid-test. Dropped
-  // here so the copy is always the checked-in bundle.
-  fs.rmSync(path.join(tempRoot, 'template', 'reference', 'notes.txt'), { force: true });
   fs.symlinkSync(path.join(REPO_ROOT, 'node_modules'), path.join(tempRoot, 'node_modules'), 'dir');
 });
 
@@ -82,4 +95,24 @@ test('validate-reference fails (exit 1) on an icon problem alone, like any other
   const result = runValidateReference({ icon: 'does-not-exist.png' });
   assert.equal(result.status, 1, result.stdout + result.stderr);
   assert.match(result.stderr, /\[icon\] preview\.config\.json icon file not found: does-not-exist\.png/);
+});
+
+test('validate-reference reports an oversized late-SOF JPEG icon as oversized only, like the preview banner (shared finishValidationResult)', () => {
+  const iconPath = path.join(tempRoot, 'template', 'late-sof.jpg');
+  fs.writeFileSync(
+    iconPath,
+    Buffer.concat([
+      Buffer.from([0xff, 0xd8, 0xff, 0xe1, (60002 >> 8) & 0xff, 60002 & 0xff]),
+      Buffer.alloc(60000, 0x41),
+      Buffer.from([0xff, 0xc0, 0x00, 0x0b, 0x08, 0x00, 0x64, 0x00, 0x64, 0x01, 0x01, 0x11, 0x00, 0xff, 0xd9]),
+    ])
+  );
+  try {
+    const result = runValidateReference({ icon: 'late-sof.jpg' });
+    assert.equal(result.status, 1, result.stdout + result.stderr);
+    assert.match(result.stderr, /\[maxFileSize\] late-sof\.jpg is 60021 bytes, over the 51200-byte limit for each icon/);
+    assert.doesNotMatch(result.stderr, /Could not read the pixel dimensions/);
+  } finally {
+    fs.rmSync(iconPath, { force: true });
+  }
 });
