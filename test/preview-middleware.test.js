@@ -1664,6 +1664,64 @@ test('sanitizeErrorMessage ends the protected span before a glued-on Windows pat
   }
 });
 
+// A Windows path with no drive letter and one leading backslash (rooted at
+// the current drive) used to match neither generic pattern and reached the
+// client whole, username included — in a sentence, quoted, wrapped in a
+// stack frame's parens, after `=`/`,`, and glued onto a repository path.
+test('sanitizeErrorMessage redacts a drive-less Windows path with a single leading backslash', () => {
+  const cases = [
+    ['npm prefix is \\Users\\jane\\AppData\\npm now', 'npm prefix is npm now'],
+    ['Cannot find \\Users\\jane\\secret.js.', 'Cannot find secret.js.'],
+    ["open '\\Users\\jane\\x.js' failed", "open 'x.js' failed"],
+    ['open "\\Users\\jane\\x.js" failed', 'open "x.js" failed'],
+    ['at fn (\\Users\\jane\\x.js:1:2)', 'at fn (x.js:1:2)'],
+    ['NODE_PATH=\\Users\\jane\\npm', 'NODE_PATH=npm'],
+    ['a,\\Users\\jane\\npm', 'a,npm'],
+    ['open \\Users\\Jane Doe\\x now', 'open x now'],
+  ];
+  for (const [input, expected] of cases) {
+    const sanitized = sanitizeErrorMessage(input);
+    assert.equal(sanitized, expected, input);
+    assert.ok(!/jane/i.test(sanitized), sanitized);
+  }
+});
+
+test('sanitizeErrorMessage redacts a drive-less Windows path glued onto a repository path', () => {
+  const root = 'C:\\work\\R';
+  const cases = [
+    [root + '\\x.js:\\Users\\jane\\z.js', 'x.js:z.js'],
+    [root + '\\x.js;\\Users\\jane\\z.js', 'x.js;z.js'],
+    [root + '\\lib\\x.js:12:3,\\Users\\jane\\z.js', 'lib\\x.js:12:3,z.js'],
+    [root + '\\x(\\Users\\jane\\z.js)', 'x(z.js)'],
+  ];
+  for (const [input, expected] of cases) {
+    const sanitized = _sanitizeErrorMessageForRoot(input, [], root);
+    assert.equal(sanitized, expected, input);
+    assert.ok(!sanitized.includes('jane'), sanitized);
+  }
+});
+
+// The guards on that drive-less branch: escape sequences and regex-looking
+// text quoted in a message, a JSON string, and the drive-letter / UNC shapes
+// the other branch owns all come out exactly as they did before it existed.
+test('sanitizeErrorMessage leaves escapes, regexes and JSON alone and keeps drive / UNC paths as before', () => {
+  const cases = [
+    ['line one\\nline two \\n \\nFoo\\nBar end', 'line one\\nline two \\n \\nFoo\\nBar end'],
+    ['col\\tcol \\t\\tx \\tBar\\tBaz', 'col\\tcol \\t\\tx \\tBar\\tBaz'],
+    ['use \\\\ to escape and \\\\ x', 'use \\\\ to escape and \\\\ x'],
+    ['pattern \\d+\\s*\\w and [\\w\\s]+ \\btest\\b', 'pattern \\d+\\s*\\w and [\\w\\s]+ \\btest\\b'],
+    ['char \\u00e9\\u00e8 \\x41\\x42 \\p{Lu}\\p{Ll}', 'char \\u00e9\\u00e8 \\x41\\x42 \\p{Lu}\\p{Ll}'],
+    ['{"a":"x\\ny"}', '{"a":"x\\ny"}'],
+    ['{"a":"\\nFoo\\tBar"}', '{"a":"\\nFoo\\tBar"}'],
+    ['open .\\lib\\x.js and ..\\lib\\y.js', 'open .\\lib\\x.js and ..\\lib\\y.js'],
+    ['open \\\\server\\share\\x now', 'open x now'],
+    ['open C:\\Users\\jane\\x now', 'open x now'],
+  ];
+  for (const [input, expected] of cases) {
+    assert.equal(sanitizeErrorMessage(input), expected, input);
+  }
+});
+
 test('sanitizeErrorMessage keeps protecting in-repository shapes that only look like a separator (ref(1)/, a-/, foo (1)/, :line:col)', () => {
   const root = '/Users/jane/work/payment-mocker';
   const cases = [

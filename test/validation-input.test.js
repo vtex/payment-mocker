@@ -289,8 +289,9 @@ test('withExtraFindings appends icon findings after validate()\'s own and turns 
 
 // A JPEG whose start-of-frame (SOF0, 100x100 px) sits behind one APP1
 // (EXIF-shaped) segment of `payloadBytes` bytes — past the icon's 50 KB read
-// cap once that is over ~51 KB. `sofBeforeScan: false` puts a start-of-scan
-// marker BEFORE the SOF instead, a real defect the core must keep reporting.
+// cap once that is over ~51 KB. `scanBeforeSof: true` replaces that APP1
+// segment with a start-of-scan (SOS) marker and `payloadBytes` of scan data,
+// so the SOS comes BEFORE the SOF — a real defect the core must keep reporting.
 function jpegWithLateSof(payloadBytes, options) {
   const sof = Buffer.from([0xff, 0xc0, 0x00, 0x0b, 0x08, 0x00, 0x64, 0x00, 0x64, 0x01, 0x01, 0x11, 0x00]);
   const sos = Buffer.from([0xff, 0xda, 0x00, 0x08, 0x01, 0x01, 0x00, 0x00, 0x3f, 0x00]);
