@@ -1297,8 +1297,9 @@ test('createPreviewMiddleware: the wrapped index still renders an invalid bundle
 // preview down over it: 500 on the wrapped index, a lone `load` finding on
 // /template-validation.json in place of validate()'s own list, and an empty
 // locale switcher — contradicting README.md/CONTRACT.md's "a failing bundle
-// still previews". loadBundle now reads at most each file's cap and keeps its
-// real size, so validate()'s own maxFileSize rule reports it. Each case below
+// still previews". loadBundle now keeps each file's real size (reading a text
+// file whole up to 4 MB, an image over its cap only up to that cap), so
+// validate()'s own maxFileSize rule reports it. Each case below
 // also sets an over-long displayName (a displayNameSafety error that has
 // nothing to do with file size) to prove the size finding arrives ALONGSIDE
 // the rest of validate()'s list rather than replacing it.
@@ -1363,6 +1364,107 @@ test('createPreviewMiddleware: an index.html over its 128 KB cap still previews,
       () => assertOversizeFileStillPreviews('index.html')
     );
   });
+});
+
+// Text files over their cap are read WHOLE up to 4 MB now (lib/load-bundle.js),
+// not up to the cap and then padded with spaces: the padding made validate()
+// report everything after the cut as missing. The reference bundle's own
+// markup behind a 140 KB comment puts its <img src="asset-logo.png"> and every
+// class style.css styles after the 128 KB mark; read to the cap, that bundle
+// got a false htmlSafety "comment ... never closed", an assetUsage "never
+// referenced ... Remove it from the bundle" and a cssClassUsage "never used
+// ... Remove the unused selector" per class.
+test('createPreviewMiddleware (validation route): an index.html over 128 KB whose classes and <img src> come only after the 128 KB mark gets maxFileSize only, and previews whole', async () => {
+  let realSize;
+  await withBundleFileReplaced(
+    'index.html',
+    (original) => {
+      const contents = Buffer.concat([Buffer.from('<!--' + 'x'.repeat(140 * 1024) + '-->\n'), original]);
+      realSize = contents.byteLength;
+      assert.ok(contents.indexOf('asset-logo.png') > 128 * 1024 && contents.indexOf('class=') > 128 * 1024, 'fixture: usages must lie past the cap');
+      return contents;
+    },
+    async () => {
+      const validation = JSON.parse((await invokeMiddleware(makeValidationReq())).body());
+      assert.deepEqual(validation, {
+        ok: false,
+        errors: [
+          {
+            rule: 'maxFileSize',
+            severity: 'error',
+            message: 'index.html is ' + realSize + ' bytes, over the 131072-byte limit for each HTML file.',
+            ref: { file: 'index.html' },
+          },
+        ],
+      });
+
+      const indexRes = await invokeMiddleware(makeReq('index.html'));
+      assert.equal(indexRes.statusCode, 200);
+      assert.match(indexRes.body(), /<img class="pay__logo" src="asset-logo\.png"/, 'the markup past the cap must be inlined too');
+      assert.match(indexRes.body(), /data-i18n="pay\.help"/, 'down to the last element of the file');
+    }
+  );
+});
+
+test('createPreviewMiddleware: an i18n file and a style.css between their cap and 4 MB are validated whole (no parse findings), and the preview renders with the i18n file parsed', async () => {
+  // pt-BR's real JSON after 70 KB of leading whitespace, and the reference
+  // style.css after 130 KB of other valid rules: read to the cap, the first
+  // was all blanks (a JSON parse finding, and a 500 on the wrapped index,
+  // whose wrapTemplate JSON.parses every i18n file) and the second was cut
+  // mid-rule.
+  await withBundleFileReplaced(
+    'i18n-pt-BR.json',
+    (original) => Buffer.concat([Buffer.from(' '.repeat(70 * 1024)), original]),
+    () =>
+      withBundleFileReplaced(
+        'style.css',
+        (original) => Buffer.concat([Buffer.from('p { color: red; }\n'.repeat(Math.ceil((130 * 1024) / 18))), original]),
+        async () => {
+          const validation = JSON.parse((await invokeMiddleware(makeValidationReq())).body());
+          assert.deepEqual(
+            validation.errors.map((finding) => finding.rule + ' ' + (finding.ref && finding.ref.file)).sort(),
+            ['maxFileSize i18n-pt-BR.json', 'maxFileSize style.css']
+          );
+
+          const indexRes = await invokeMiddleware(makeReq('index.html'));
+          assert.equal(indexRes.statusCode, 200, 'the over-cap i18n file must parse: ' + indexRes.body().slice(0, 200));
+          assert.match(indexRes.body(), /payment-template-i18n/);
+
+          const configRes = await invokeMiddleware(makeConfigReq());
+          assert.deepEqual(JSON.parse(configRes.body()).availableLocales, ['en-US', 'pt-BR']);
+        }
+      )
+  );
+});
+
+// Past 4 MB a text file is still read only up to its cap, never whole — and
+// validated not at all: one `load` finding naming it and its size. For an
+// i18n file the cut also leaves invalid JSON, so the wrapped index fails the
+// way it does for any malformed i18n file. Pinned so either changes on
+// purpose; the locale switcher is unaffected.
+test('createPreviewMiddleware: an i18n file past 4 MB gets one clear load finding, the wrapped index 500s on its cut-off JSON, and the locales still list', async () => {
+  const realSize = 4 * 1024 * 1024 + 1;
+  await withBundleFileReplaced(
+    'i18n-pt-BR.json',
+    (original) => Buffer.concat([Buffer.from(' '.repeat(realSize - original.byteLength)), original]),
+    async () => {
+      const validation = JSON.parse((await invokeMiddleware(makeValidationReq())).body());
+      assert.equal(validation.ok, false);
+      assert.equal(validation.errors.length, 1, JSON.stringify(validation.errors));
+      assert.equal(validation.errors[0].rule, 'load');
+      assert.match(
+        validation.errors[0].message,
+        new RegExp('^i18n-pt-BR\\.json is ' + realSize + ' bytes, far over the size limit for each i18n file and over the 4194304-byte ceiling')
+      );
+
+      const indexRes = await invokeMiddleware(makeReq('index.html'));
+      assert.equal(indexRes.statusCode, 500);
+      assert.equal(indexRes.body(), 'Failed to prepare template preview.');
+
+      const configRes = await invokeMiddleware(makeConfigReq());
+      assert.deepEqual(JSON.parse(configRes.body()).availableLocales, ['en-US', 'pt-BR']);
+    }
+  );
 });
 
 // Problems with the configured icon used to throw out of
@@ -1759,4 +1861,56 @@ test('sanitizeErrorMessage leaves pre-existing placeholder-looking text unchange
   const sanitized = sanitizeErrorMessage(message);
   assert.equal(sanitized, 'x \uE0000\uE001x y lib/a.js and \uE0001\uE001x, lib/b.js');
   assert.ok(!sanitized.includes('undefined'), sanitized);
+});
+
+// endOfPathRemainder used to redo a slice, a `:line:col` regex and two splits
+// of the whole span for every character it gave back, so a repository path
+// followed by N `)` cost O(N²): about 0.5 s at 10 000, 2 s at 20 000 and 8 s
+// at 40 000, synchronous on the server's one event loop. Only absurd
+// author-controlled text (a huge value in preview.config.json, say) gets
+// there, but it would stall every other request meanwhile. The bound below is
+// generous on purpose (it runs in about 2-3 ms now), so a slow CI machine
+// doesn't flake, yet it is far below the old 8 s.
+function timed(fn) {
+  const started = process.hrtime.bigint();
+  const value = fn();
+  return { value, ms: Number(process.hrtime.bigint() - started) / 1e6 };
+}
+
+test('sanitizeErrorMessage stays linear on a repository path followed by 40 000 `)`, with the same output as the short equivalent', () => {
+  const at = 'at ' + path.join(REAL_REPO_ROOT, 'lib', 'x.js');
+  assert.equal(sanitizeErrorMessage(at + ')))'), 'at lib/x.js)))', 'the short equivalent');
+  const { value, ms } = timed(() => sanitizeErrorMessage(at + ')'.repeat(40000)));
+  assert.ok(ms < 500, 'took ' + ms.toFixed(1) + ' ms');
+  assert.equal(value, 'at lib/x.js' + ')'.repeat(40000), 'path made repo-relative, every `)` kept');
+});
+
+test('sanitizeErrorMessage still sanitizes what lies past the remainder cap: an outside path glued on after 40 000 `)` is reduced to its basename', () => {
+  // The walk after a known path stops at 4096 characters
+  // (MAX_PATH_REMAINDER_LENGTH); the rest goes through the generic patterns,
+  // never out raw.
+  const message = 'at ' + path.join(REAL_REPO_ROOT, 'lib', 'x.js') + ')'.repeat(40000) + ':/Users/alice/secret.txt';
+  const { value, ms } = timed(() => sanitizeErrorMessage(message));
+  assert.ok(ms < 500, 'took ' + ms.toFixed(1) + ' ms');
+  assert.equal(value, 'at lib/x.js' + ')'.repeat(40000) + ':secret.txt');
+});
+
+test('sanitizeErrorMessage stays linear on other long adversarial shapes', () => {
+  const at = path.join(REAL_REPO_ROOT, 'lib', 'x.js');
+  const shapes = {
+    'repo path + `]`': at + ']'.repeat(100000),
+    'repo path + `:1)`': at + ':1)'.repeat(33000),
+    'repo path + `.`': at + '.'.repeat(100000),
+    'repo path + ` A`': at + ' A'.repeat(50000),
+    'repo path + ` (1)/`': at + ' (1)/'.repeat(20000),
+    '`(`': '('.repeat(100000),
+    '`\\`': '\\'.repeat(100000),
+    '`/`': '/'.repeat(100000),
+    '`:`': ':'.repeat(100000),
+    '` A`': ' A'.repeat(50000),
+  };
+  for (const [label, message] of Object.entries(shapes)) {
+    const { ms } = timed(() => sanitizeErrorMessage(message));
+    assert.ok(ms < 500, label + ' took ' + ms.toFixed(1) + ' ms');
+  }
 });

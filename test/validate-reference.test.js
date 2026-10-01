@@ -97,6 +97,46 @@ test('validate-reference fails (exit 1) on an icon problem alone, like any other
   assert.match(result.stderr, /\[icon\] preview\.config\.json icon file not found: does-not-exist\.png/);
 });
 
+test('validate-reference reports a text file past the 4 MB ceiling as one clean [load] finding, like the preview banner — no raw exception or stack', () => {
+  // toValidationBundle refuses such a file (lib/load-bundle.js's
+  // MAX_VALIDATION_BYTES). The banner always showed that as a single `load`
+  // finding; this script used to let the throw reach main().catch, which
+  // printed the raw Error with its stack trace instead of `validate: failed`.
+  const htmlPath = path.join(tempRoot, 'template', 'reference', 'index.html');
+  const original = fs.readFileSync(htmlPath);
+  const realSize = 4 * 1024 * 1024 + 1;
+  fs.writeFileSync(htmlPath, Buffer.concat([original, Buffer.from(' '.repeat(realSize - original.byteLength))]));
+  try {
+    const result = runValidateReference();
+    assert.equal(result.status, 1, result.stdout + result.stderr);
+    assert.equal(result.stdout, '');
+    assert.equal(
+      result.stderr,
+      'validate: failed\n' +
+        '  [load] index.html is ' + realSize + ' bytes, far over the size limit for each HTML file and over the 4194304-byte ceiling up to which the local preview can hand an oversized file to the validator at all — shrink or remove it to see the rest of the bundle\'s findings.\n'
+    );
+    assert.doesNotMatch(result.stderr, /^\s+at /m, 'no stack frames');
+    assert.doesNotMatch(result.stderr, /Error:/, 'no raw Error dump');
+  } finally {
+    fs.writeFileSync(htmlPath, original);
+  }
+});
+
+test('validate-reference reports an unreadable preview.config.json as a clean [load] finding too', () => {
+  const configPath = path.join(tempRoot, 'template', 'preview.config.json');
+  const original = fs.readFileSync(configPath);
+  fs.writeFileSync(configPath, '{ not json');
+  try {
+    const result = spawnSync(process.execPath, [path.join(tempRoot, 'scripts', 'validate-reference.js')], { encoding: 'utf8' });
+    assert.equal(result.status, 1, result.stdout + result.stderr);
+    assert.match(result.stderr, /^validate: failed\n {2}\[load\] /);
+    assert.doesNotMatch(result.stderr, /^\s+at /m, 'no stack frames');
+    assert.ok(!result.stderr.includes(tempRoot), 'the absolute path must be sanitized: ' + result.stderr);
+  } finally {
+    fs.writeFileSync(configPath, original);
+  }
+});
+
 test('validate-reference reports an oversized late-SOF JPEG icon as oversized only, like the preview banner (shared finishValidationResult)', () => {
   const iconPath = path.join(tempRoot, 'template', 'late-sof.jpg');
   fs.writeFileSync(
