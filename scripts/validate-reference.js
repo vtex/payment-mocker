@@ -6,6 +6,22 @@ const { printUnrunnableResult, printValidationResult } = require('../lib/format-
 
 const json = process.argv.indexOf('--json') !== -1;
 
+// A reader that stops early (`-- --json | head`) closes the pipe while a
+// result bigger than its buffer (~64 KB) is still being written, and the
+// raw process.stdout.write of `--json` then fails: EPIPE on a pipe, or
+// ENOTCONN when stdout is the socket a Node parent's spawn() hands its child
+// on macOS. Unhandled, that error crashes the process with a stack on stderr
+// and exit 1 — even for an `ok` result. A reader that left is not a
+// validation failure: ignore it so the exit code set below keeps reporting
+// the validation result. Any other write error still surfaces. Only stdout
+// needs this: everything this script sends to stderr goes through
+// console.error/console.warn, and Node's console already ignores errors on
+// the stream it writes to (a closed `2>&1 | head` never crashes it).
+const READER_GONE_CODES = new Set(['EPIPE', 'ENOTCONN']);
+process.stdout.on('error', (error) => {
+  if (!READER_GONE_CODES.has(error.code)) throw error;
+});
+
 function printFailure(result) {
   printValidationResult(result, { json: json });
 }

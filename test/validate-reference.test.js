@@ -5,7 +5,7 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
-const { spawnSync } = require('node:child_process');
+const { spawn, spawnSync } = require('node:child_process');
 
 /**
  * Runs the real scripts/validate-reference.js end to end, exit code and all —
@@ -223,4 +223,138 @@ test('validate-reference --json delivers the whole result when it is larger than
   } finally {
     fs.writeFileSync(cssPath, original);
   }
+});
+
+/**
+ * Runs the real script with a reader that goes away after the first chunk on
+ * `closedStream` (`-- --json | head`), and resolves with its exit code and
+ * whatever arrived on the other stream. Kills the child and rejects if it
+ * hasn't exited within 20 s, so a regression can never hang the suite.
+ */
+function runWithEarlyClosedReader(closedStream, extraArgs) {
+  return new Promise((resolve, reject) => {
+    const child = spawn(process.execPath, [path.join(tempRoot, 'scripts', 'validate-reference.js')].concat(extraArgs || []), {
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
+    const otherStream = closedStream === 'stdout' ? 'stderr' : 'stdout';
+    let other = '';
+    child[closedStream].once('data', () => child[closedStream].destroy());
+    child[otherStream].setEncoding('utf8');
+    child[otherStream].on('data', (chunk) => {
+      other += chunk;
+    });
+    const timer = setTimeout(() => {
+      child.kill('SIGKILL');
+      reject(new Error('validate-reference did not exit within 20 s'));
+    }, 20000);
+    child.on('error', (error) => {
+      clearTimeout(timer);
+      reject(error);
+    });
+    child.on('close', (code) => {
+      clearTimeout(timer);
+      resolve({ status: code, other: other });
+    });
+  });
+}
+
+// 1,500 unused CSS classes: 1,500 `cssClassUsage` errors, a failing result
+// far larger than a pipe buffer (see the test above).
+function withUnusedCssClasses(callback) {
+  const cssPath = path.join(tempRoot, 'template', 'reference', 'style.css');
+  const original = fs.readFileSync(cssPath, 'utf8');
+  let extra = '';
+  for (let i = 0; i < 1500; i++) extra += '\n.unused-class-' + i + ' { color: red; }';
+  fs.writeFileSync(cssPath, original + extra);
+  return Promise.resolve()
+    .then(callback)
+    .finally(() => fs.writeFileSync(cssPath, original));
+}
+
+// 1,500 classes used in the markup but never defined: 1,500 `cssClassUsage`
+// warnings, so a PASSING result (~500 KB of JSON) just as large.
+function withUndefinedHtmlClasses(callback) {
+  const htmlPath = path.join(tempRoot, 'template', 'reference', 'index.html');
+  const original = fs.readFileSync(htmlPath, 'utf8');
+  const classes = [];
+  for (let i = 0; i < 1500; i++) classes.push('undefined-class-' + i);
+  fs.writeFileSync(htmlPath, original + '<div class="' + classes.join(' ') + '"></div>\n');
+  return Promise.resolve()
+    .then(callback)
+    .finally(() => fs.writeFileSync(htmlPath, original));
+}
+
+test('validate-reference --json still exits 0 for an ok result when the reader closes the pipe early (no EPIPE crash)', () =>
+  withUndefinedHtmlClasses(async () => {
+    // Without the script's stdout error handler, the write still pending
+    // when the reader leaves crashes the process: `Error: write EPIPE` (or
+    // ENOTCONN — spawn()'s stdio is a socket on macOS) and a stack on stderr,
+    // exit 1, although validation passed. (A platform whose writes never fail
+    // this way passes trivially.)
+    const result = await runWithEarlyClosedReader('stdout', ['--json']);
+    assert.equal(result.other, '', 'no EPIPE/ENOTCONN error or stack on stderr');
+    assert.equal(result.status, 0);
+  }));
+
+test('validate-reference --json exits 1 for a failing result when the reader closes the pipe early, with the validation result and not a crash', () =>
+  withUnusedCssClasses(async () => {
+    // A crash exits 1 too, so here stderr is what tells the two apart.
+    const result = await runWithEarlyClosedReader('stdout', ['--json']);
+    assert.equal(result.other, '', 'no EPIPE/ENOTCONN error or stack on stderr');
+    assert.equal(result.status, 1);
+  }));
+
+test('validate-reference in text mode still exits 0 when the reader of its stderr findings closes early', () =>
+  withUndefinedHtmlClasses(async () => {
+    // Text mode sends findings to stderr only through console.warn/error,
+    // which ignore errors on their stream — why the script guards stdout
+    // alone. This pins that down.
+    const result = await runWithEarlyClosedReader('stderr');
+    assert.equal(result.status, 0);
+    assert.equal(result.other, 'validate: ok (1500 warnings) — template at template/reference\n');
+  }));
+
+/**
+ * Runs the real script with a `--require` preload that makes
+ * runTemplateValidation reject AND loadFailureResult throw, so main()'s final
+ * `.catch` has to fall back to printUnrunnableResult. The script destructures
+ * both functions from lib/preview-middleware when it is required, so the
+ * preload patches that module's exports object (the one require.cache hands
+ * the script) before the script ever loads.
+ */
+function runWithUnexpectedFailure(extraArgs) {
+  const preloadPath = path.join(tempRoot, 'unexpected-failure-preload.js');
+  fs.writeFileSync(
+    preloadPath,
+    "'use strict';\n" +
+      'const middleware = require(' + JSON.stringify(path.join(tempRoot, 'lib', 'preview-middleware.js')) + ');\n' +
+      "middleware.runTemplateValidation = () => Promise.reject(new Error('unexpected at ' + __filename));\n" +
+      "middleware.loadFailureResult = () => { throw new Error('sanitizer failed at ' + __filename); };\n"
+  );
+  try {
+    return spawnSync(
+      process.execPath,
+      ['--require', preloadPath, path.join(tempRoot, 'scripts', 'validate-reference.js')].concat(extraArgs || []),
+      { encoding: 'utf8' }
+    );
+  } finally {
+    fs.rmSync(preloadPath, { force: true });
+  }
+}
+
+test('validate-reference --json reports a failure nothing else catches as the fixed `load` result on stdout only, exit 1', () => {
+  const result = runWithUnexpectedFailure(['--json']);
+  assert.equal(result.status, 1, result.stdout + result.stderr);
+  assert.equal(result.stderr, '', 'JSON mode keeps stderr empty even on this last-resort path');
+  assert.deepEqual(JSON.parse(result.stdout), {
+    ok: false,
+    errors: [{ rule: 'load', severity: 'error', message: 'Validation could not run.' }],
+  });
+});
+
+test('validate-reference in text mode reports a failure nothing else catches as the same fixed finding on stderr, exit 1', () => {
+  const result = runWithUnexpectedFailure();
+  assert.equal(result.status, 1, result.stdout + result.stderr);
+  assert.equal(result.stdout, '');
+  assert.equal(result.stderr, 'validate: failed (1 error)\n  [error] load — Validation could not run.\n');
 });

@@ -131,6 +131,7 @@ test('printUnrunnableResult in JSON mode prints one parseable `load` result on s
   printUnrunnableResult({ json: true });
   assert.deepEqual(calls.error, []);
   assert.deepEqual(calls.warn, []);
+  assert.deepEqual(calls.log, []);
   assert.deepEqual(JSON.parse(calls.stdout.join('')), {
     ok: false,
     errors: [{ rule: 'load', severity: 'error', message: 'Validation could not run.' }],
@@ -145,6 +146,7 @@ test('printUnrunnableResult in text mode reports the same fixed finding like any
     '  [error] load — Validation could not run.',
   ]);
   assert.deepEqual(calls.stdout, []);
+  assert.deepEqual(calls.log, []);
 });
 
 test('printValidationResult pluralizes singular counts correctly', (t) => {
