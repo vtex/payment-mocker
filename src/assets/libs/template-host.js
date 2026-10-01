@@ -22,20 +22,46 @@
     if (!previewConfig || !previewConfig.displayName) return '';
     var names = previewConfig.displayName;
     // Delegates to the same resolution algorithm the wrapped template's
-    // in-iframe runtime uses (lib/resolve-locale.js, served statically at
-    // /lib/resolve-locale.js and loaded via <script> above template-host.js
-    // in src/index.html), instead of a third, divergent reimplementation
-    // that skipped candidate sorting and the defaultLocale preference.
+    // in-iframe runtime uses (@vtex/payment-templates-core/wrap's
+    // resolve-locale.js, served statically at /lib/resolve-locale.js and
+    // loaded via <script> above template-host.js in src/index.html), instead
+    // of a third, divergent reimplementation that skipped candidate sorting
+    // and the defaultLocale preference.
     if (typeof window.resolveLocale !== 'function') return '';
     var resolved = window.resolveLocale(locale, names, previewConfig.defaultLocale);
     return names[resolved] || '';
+  }
+
+  // encodeURIComponent leaves `!'()*` unescaped — they're valid in a URI by
+  // its own spec — but iconName lands inside a single-quoted url('...') in a
+  // CSS property value below, where a bare `'` or `)` ends that value early
+  // and lets whatever follows smuggle a second background-image (e.g. a
+  // request to an attacker-controlled origin: `x'),url('https://evil/img`).
+  //
+  // This used to reject any name outside a plain-filename shape
+  // (`/^[A-Za-z0-9._/-]+$/`) instead. That was both stricter and looser than
+  // the contract that actually governs the icon
+  // (lib/preview-middleware.js's ICON_FILENAME_PATTERN, `/^[^/\\]+\.(?:png|jpe?g|webp)$/i`,
+  // via the `/template-icon/` route): a legitimate name outside `[A-Za-z0-9._-]`
+  // (an accented character, a space) was rejected here even though the server
+  // would happily serve it, while a name containing `/` passed here even
+  // though the server always 404s it (icons are a flat name, no
+  // subdirectory). Escaping only the three characters that are actually
+  // unsafe in this specific position fixes the injection without guessing at
+  // a shape the server, not this file, is the authority on — an icon name
+  // this doesn't reject can still 404 at the server, same as any other
+  // invalid one, which is a harmless broken image, not a security issue.
+  function escapeForCssUrl(value) {
+    return value.replace(/['()]/g, function (char) {
+      return '%' + char.charCodeAt(0).toString(16);
+    });
   }
 
   function applyPaymentGroupIcon() {
     if (!paymentGroupLabel || !previewConfig || !previewConfig.icon) return;
     var iconName = String(previewConfig.icon).replace(/^\.\//, '');
     paymentGroupLabel.style.backgroundImage =
-      "url('" + ICON_PREFIX + encodeURIComponent(iconName) + "')";
+      "url('" + ICON_PREFIX + escapeForCssUrl(encodeURIComponent(iconName)) + "')";
     paymentGroupLabel.style.backgroundRepeat = 'no-repeat';
     paymentGroupLabel.style.backgroundPosition = 'right center';
     paymentGroupLabel.style.backgroundSize = '30px auto';
@@ -86,10 +112,16 @@
   }
 
   var DIAGNOSTIC_MESSAGE_TYPE = 'payment-template:diagnostic';
-  // The host's own copy of the closed set lib/template-runtime.js reports (see
-  // "Diagnostics" there): a code missing from this list is dropped, never
+  // The host's own copy of the closed set the in-iframe runtime reports (see
+  // "Diagnostics" in @vtex/payment-templates-core/wrap's template-runtime.js,
+  // pinned in package.json): a code missing from this list is dropped, never
   // trusted or displayed, so adding one on the runtime side is a no-op here
-  // until both sides are updated.
+  // until both sides are updated. This file is a plain browser script with no
+  // module system, so it can't import the package's own DIAGNOSTIC_CODES /
+  // DIAGNOSTIC_MESSAGE_TYPE exports and both stay hand-written copies — but
+  // test/template-host.test.js now iterates those exports against this file
+  // as loaded, so a bump that adds a code (or a code dropped from here by
+  // mistake) fails `npm test` until this list is touched by hand to match.
   var DIAGNOSTIC_CODES = ['stylesheetNotApplied', 'containerMissing', 'i18nPayloadInvalid'];
 
   function onMessage(event) {
@@ -194,7 +226,7 @@
 
     var errors = validation && Array.isArray(validation.errors) ? validation.errors : [];
     // Deliberately does NOT also check `validation.ok`:
-    // @vtex/payment-templates-validator returns `ok: true` even when `errors`
+    // @vtex/payment-templates-core returns `ok: true` even when `errors`
     // is non-empty, as long as every finding in it is a warning (e.g. an
     // unused CSS class) rather than an error. Hiding the banner whenever
     // `ok` was true used to swallow that whole class of findings silently,

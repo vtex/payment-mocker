@@ -21,6 +21,7 @@
     "grunt-contrib-connect": "^1.0.1",
     "grunt-contrib-watch": "^1.0.0",
     "load-grunt-tasks": "^3.5.0",
+    "minimatch": "^3.1.5",
     "serve-static": "^1.10.2"
   }
 }

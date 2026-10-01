@@ -158,6 +158,12 @@ Remove the object (or individual keys) to check how your template looks with its
 | Each `i18n-{locale}.json` | ≤ **64 KB** |
 | Icon (optional) | ≤ **50 KB** |
 
+An oversized file doesn't stop the local preview: it still previews, and local validation (the banner and `npm run validate:reference`, which always agree) reports the file's real size along with every other finding — up to a point, 4 MB for any single file:
+
+- **`index.html`, `style.css` and the i18n files, up to 4 MB**, are read whole, by the preview and by validation alike. Every finding is about the real file, so a class or an asset used only further down an oversized `index.html` is not reported as unused. The preview renders the whole file too (`index.html` and the i18n files are inlined into the wrapped document, `style.css` is served as is), so an oversized one still looks fine there even though upload would reject it — the `maxFileSize` finding is how you learn about it.
+- **An asset or the icon over its limit** is served to the preview whole, but validation reads only its first 256 KB (asset) or 50 KB (icon), plus its real size. What validation checks on an image — its type and, for the icon, its pixel size — is read from the start of the file, so that is enough; the one exception is a JPEG icon whose size header lies past its first 50 KB (behind large metadata), whose pixel size is simply not checked until the icon is back under its limit. The real size counts towards the 1 MB total.
+- **Any single file over 4 MB** is beyond what local validation inspects. For `index.html`, `style.css`, an i18n file or an asset, validation reports just one `load` finding naming that file and its size, and the rest of the bundle's findings are not shown until it is back under 4 MB. An icon over 4 MB gets its own `icon` finding instead, and the rest of the findings are still shown. In the preview, a text file that large is cut off at its limit: an `index.html` over 4 MB shows only its first 128 KB, and an i18n file over 4 MB is cut down to its first 64 KB, which is invalid JSON, so the preview can't render until it shrinks. `style.css`, assets and the icon are still served whole.
+
 Images are verified by file content (magic bytes), not by extension. SVG **files** are not allowed; inline `<svg>` markup in HTML is permitted within the HTML allow list.
 
 The local preview also clamps the iframe's rendered height to a maximum of **2000 px** (and a minimum of 40 px) — see `clampHeight` in `src/assets/libs/template-host.js`. This is a display behavior of the local preview server only; it is not a rule `npm run validate:reference` (or the upload-time validator) checks.
@@ -170,7 +176,7 @@ Install dependencies from the repository root, then run:
 npm run validate:reference
 ```
 
-This runs `@vtex/payment-templates-core` against the bundle configured in `template/preview.config.json`. A passing run prints `validate: ok — template at template/<bundleDir>` (plus a warning count in parentheses if any warnings apply). A failing run prints the count of errors/warnings followed by one line per finding, with a `file:line:column` location when the rule reports one:
+This runs `@vtex/payment-templates-core` against the bundle configured in `template/preview.config.json`. A passing run prints `validate: ok — template at template/<bundleDir>` (with a warning count in parentheses if any warnings apply). A failing run prints the count of errors/warnings followed by one line per finding, with a `file:line:column` location when the rule reports one:
 
 ```
 validate: failed (1 error) — template at template/reference
@@ -187,7 +193,7 @@ Local validation is for feedback only. VTEX runs the same validator on upload be
 grunt
 ```
 
-Open [http://localhost:8080/](http://localhost:8080/). `grunt` runs `@vtex/payment-templates-validator` on your bundle before starting the server; fix reported errors, then preview.
+Open [http://localhost:8080/](http://localhost:8080/). `grunt` runs `@vtex/payment-templates-core` on your bundle and starts the server either way — a failing bundle still previews, with errors reported in the terminal and as a banner in the checkout shell.
 
 The payment step renders your bundle in an iframe with `sandbox="allow-scripts"`, applies translations from the wrapped document, resizes on content changes, and accepts locale switches via `postMessage` — matching the checkout host contract.
 

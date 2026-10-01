@@ -7,7 +7,22 @@
 var path = require('path');
 var LIVERELOAD_PORT = 35729;
 var lrSnippet = require('connect-livereload')({
-  port: LIVERELOAD_PORT
+  port: LIVERELOAD_PORT,
+  // hostname: '127.0.0.1', not left to connect-livereload's own default —
+  // without it, the injected <script> tag's host comes from
+  // `req.headers.host.split(':')[0]` (connect-livereload's index.js), which
+  // breaks for the bracketed IPv6 form isLocalHostname accepts
+  // (lib/preview-middleware.js): splitting 'Host: [::1]:8080' on ':' gives
+  // '[' as the "host", producing the broken `<script src="//[:35729/...">`.
+  // A literal IP instead of the name 'localhost': Node's own `.listen(port,
+  // 'localhost')` resolves that name to a single address — on some
+  // systems/setups, IPv6's `::1` — and binds only that one, so a browser
+  // whose own 'localhost' resolution picks the other family could fail to
+  // connect at all rather than just falling back. Pointing this at literally
+  // whatever address the livereload server itself binds (`host: '127.0.0.1'`
+  // in watch.livereload.options.livereload below) removes that ambiguity
+  // entirely instead of relying on both resolving the name the same way.
+  hostname: '127.0.0.1'
 });
 
 var mountFolder = function(connect, dir) {
@@ -24,7 +39,36 @@ module.exports = function(grunt) {
     connect: {
       options: {
         port: 8080,
-        hostname: '*'
+        // hostname: '127.0.0.1', not '*' (every interface): this server
+        // hands out the partner's own unpublished bundle, icon and
+        // validator findings with no authentication of any kind, and
+        // lib/preview-middleware.js's own Host-header allow-list
+        // (isLocalHostname) only ever closed DNS rebinding — it can't stop a
+        // non-browser client on the LAN from setting Host: localhost itself,
+        // since Host is just a request header, not a property of which
+        // interface the connection actually arrived on. Binding the socket
+        // itself to loopback is what actually keeps such a client out. It
+        // does cost something the Host allow-list alone didn't: previewing
+        // from another device (e.g. a phone) on the same network was already
+        // broken by that allow-list (that device's real Host header is
+        // rejected), but running grunt inside Docker or a VM with forwarded
+        // ports (e.g. `-p 8080:8080 -p 35729:35729`) used to work — the host
+        // browser still sent `Host: localhost:8080`, which the allow-list
+        // accepts, and the server listened on '*'. Now neither this server
+        // nor livereload (bound to loopback below too) answers on the
+        // container's/VM's own interface, so the forwarded port never
+        // reaches them; run grunt on the host machine itself instead (see
+        // README.md).
+        //
+        // A literal IP, not the name 'localhost': `.listen(port,
+        // 'localhost')` resolves that name to a single address before
+        // binding — confirmed against a real server on this machine, it came
+        // back as IPv6's `::1` only, leaving `http://127.0.0.1:8080/`
+        // (an address plenty of tooling and muscle memory reaches for)
+        // unable to connect at all rather than merely not preferred. Pinning
+        // the literal address sidesteps whatever a given OS/Node version
+        // happens to resolve the name to.
+        hostname: '127.0.0.1'
       },
       livereload: {
         options: {
@@ -40,6 +84,19 @@ module.exports = function(grunt) {
     },
     watch: {
       validate: {
+        options: {
+          // nocase: true — lib/load-bundle.js's ASSET_FILE_PATTERN accepts an
+          // asset's extension case-insensitively (production decides an
+          // asset's type by its bytes, never its name), but grunt-contrib-watch
+          // hands this whole options object straight to Gaze, which matches a
+          // changed file against `files` below via globule/minimatch — case-
+          // sensitively by default. Without this, saving `asset-logo.PNG` on
+          // a case-sensitive filesystem (Linux; not macOS's default
+          // case-insensitive one, which never reproduces this) matched
+          // nothing, so neither this task nor the livereload target below
+          // ever noticed the save.
+          nocase: true
+        },
         files: [
           'template/**/*.{html,css,json,png,jpg,jpeg,webp}',
           'lib/**/*.js'
@@ -48,7 +105,54 @@ module.exports = function(grunt) {
       },
       livereload: {
         options: {
-          livereload: LIVERELOAD_PORT
+          // nocase: true — see watch.validate.options' own copy of this
+          // comment just above; same gap, same fix, for the same set of file
+          // extensions in the `files` list below.
+          nocase: true,
+          // liveCSS/liveImg: false — not just the port — because
+          // grunt-contrib-watch forwards this whole object straight to
+          // tiny-lr's constructor (see its lib/livereload.js), which stores
+          // it and includes `liveCSS`/`liveImg` in every reload message it
+          // broadcasts (tiny-lr's lib/client.js). livereload.js's browser
+          // client then honors whatever the message says (its own
+          // performReload only defaults to true when the field is missing
+          // entirely), which is what makes a .css/.png/.jpg/.jpeg change
+          // fall through to a full page reload instead of livereload's
+          // built-in "smart" swap — the only thing that reaches the payment
+          // template, since it lives inside the sandboxed
+          // #payment-template-iframe, a document that swap can never patch
+          // (it only ever touches <link>/<img> tags in the checkout shell's
+          // own document). This is a server-side setting for exactly that
+          // reason: a client-side `window.LiveReloadOptions` override was
+          // tried first and reverted — livereload.js only reads the
+          // <script src="//host:port/...livereload.js"> tag's own host/port
+          // when that global is absent, so setting it broke every reload,
+          // not just the CSS/image ones (the socket connected to
+          // `ws://null:35729`, since nothing there is what it extracts host
+          // from).
+          // host: '127.0.0.1' — tiny-lr (which this object is forwarded to
+          // wholesale) defaults its own `host` to '*' independently of
+          // connect's own hostname above, and otherwise broadcasts every
+          // saved file's path to any websocket client on the LAN able to
+          // connect to this port. A literal IP, not 'localhost': same
+          // reasoning as connect.options.hostname's own copy of this comment
+          // above — and lrSnippet's `hostname` (this file, near the top) is
+          // pinned to this exact address so the injected <script> tag always
+          // points at whatever this is actually bound to.
+          //
+          // What this does NOT close: tiny-lr's own HTTP routes (GET
+          // /livereload/changed, /kill, and the WebSocket upgrade itself)
+          // have no Origin check of their own (read in its lib/server.js),
+          // and loopback binding only keeps out other MACHINES on the LAN —
+          // a malicious page open in the SAME browser on THIS machine can
+          // still open a WebSocket to ws://127.0.0.1:35729/livereload (the
+          // same-origin policy doesn't cover WebSocket connections) or hit
+          // GET .../kill directly. Low impact — it leaks saved files' repo-
+          // relative paths and can force a reload or stop livereload, not
+          // read bundle content — and tiny-lr exposes no hook to add an
+          // Origin check of its own short of patching it, so left as a known
+          // gap rather than fixed here.
+          livereload: { port: LIVERELOAD_PORT, host: '127.0.0.1', liveCSS: false, liveImg: false }
         },
         files: [
           'src/{,*/}*.html',
