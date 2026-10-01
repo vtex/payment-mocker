@@ -202,3 +202,25 @@ test('validate-reference prints a file:line:column location when a finding carri
     fs.writeFileSync(htmlPath, original);
   }
 });
+
+test('validate-reference --json delivers the whole result when it is larger than a pipe buffer (no process.exit() truncation)', () => {
+  // process.exit() right after a big write to a pipe discards what didn't fit
+  // in the pipe's buffer (~64 KB; observed on macOS) and the JSON arrives cut
+  // off. Enough unused CSS classes make the result far larger than that.
+  const cssPath = path.join(tempRoot, 'template', 'reference', 'style.css');
+  const original = fs.readFileSync(cssPath, 'utf8');
+  let extra = '';
+  for (let i = 0; i < 1500; i++) extra += '\n.unused-class-' + i + ' { color: red; }';
+  fs.writeFileSync(cssPath, original + extra);
+  try {
+    const result = runValidateReference(null, ['--json']);
+    assert.equal(result.status, 1, result.stderr);
+    assert.ok(result.stdout.length > 100 * 1024, 'the fixture must exceed a pipe buffer: ' + result.stdout.length);
+    const parsed = JSON.parse(result.stdout);
+    assert.equal(parsed.ok, false);
+    assert.ok(parsed.errors.filter((finding) => finding.rule === 'cssClassUsage').length >= 1500);
+    assert.equal(result.stderr, '');
+  } finally {
+    fs.writeFileSync(cssPath, original);
+  }
+});

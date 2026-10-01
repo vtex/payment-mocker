@@ -180,7 +180,7 @@ This runs `@vtex/payment-templates-core` against the bundle configured in `templ
 
 ```
 validate: failed (1 error) — template at template/reference
-  [error] htmlSafety index.html:2:1 — Forbidden tag <script>
+  [error] htmlSafety index.html:1:1 — <script> is never allowed in a payment template. Author scripting and embedded content are forbidden.
 ```
 
 For CI, run `npm run validate:reference -- --json` to print the raw `{ ok, errors }` result instead.

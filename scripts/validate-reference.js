@@ -2,7 +2,7 @@
 
 const { readPreviewConfig } = require('../lib/preview-config');
 const { loadFailureResult, runTemplateValidation } = require('../lib/preview-middleware');
-const { printValidationResult } = require('../lib/format-validation-output');
+const { printUnrunnableResult, printValidationResult } = require('../lib/format-validation-output');
 
 const json = process.argv.indexOf('--json') !== -1;
 
@@ -18,7 +18,8 @@ async function main() {
     // The same `[load]` finding the preview's validation route reports for a
     // preview.config.json it can't read, not a raw exception.
     printFailure(loadFailureResult(error));
-    process.exit(1);
+    process.exitCode = 1;
+    return;
   }
   // runTemplateValidation is the exact pipeline the preview's
   // /template-validation.json route runs (lib/preview-middleware.js): it
@@ -41,19 +42,23 @@ async function main() {
     suffix: ' — template at template/' + config.bundleDir,
   });
 
-  process.exit(result.ok ? 0 : 1);
+  // process.exitCode, not process.exit(): exit() right after a large write to
+  // a pipe (`-- --json | jq`, a CI capture) discards whatever didn't fit in
+  // the pipe's buffer (~64 KB) and the JSON arrives truncated. Nothing here
+  // holds the process open, so it ends on its own once stdout has drained.
+  process.exitCode = result.ok ? 0 : 1;
 }
 
 main().catch(function (error) {
   // Only reached for something runTemplateValidation itself doesn't expect
   // (it resolves every load/validate failure as a finding). Still reported
-  // as a finding, without the stack; the fixed fallback covers the
-  // sanitizer itself throwing.
+  // as a finding, without the stack; the fixed result covers the sanitizer
+  // itself throwing, in the same shape (and on the same streams, so
+  // `--json` stays parseable) as any other failure.
   try {
     printFailure(loadFailureResult(error));
   } catch (secondError) {
-    console.error('validate: failed');
-    console.error('  [error] load — Validation could not run.');
+    printUnrunnableResult({ json: json });
   }
-  process.exit(1);
+  process.exitCode = 1;
 });
