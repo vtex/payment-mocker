@@ -1611,3 +1611,94 @@ test('sanitizeErrorMessage only replaces a known path at a path boundary, never 
   // A relative "known path" is ignored outright: it would match prose.
   assert.equal(sanitizeErrorMessage('the template is broken', ['template']), 'the template is broken');
 });
+
+// A path OUTSIDE the repository glued onto an in-repository one with no space
+// — a NODE_PATH / PATH list, a `file:line:col,next` list, an arrow, a wrapped
+// `x(/...)` — used to fall inside the in-repository path's protected span, so
+// the generic pattern never saw it and it reached the client whole, username
+// included. The span now ends right before a `:`, `;`, `,`, `>`, `=` or `(`
+// that is immediately followed by the start of another absolute path.
+test('sanitizeErrorMessage still redacts a path outside the repository glued onto an in-repository one (real root)', () => {
+  const home = os.homedir();
+  const sanitized = sanitizeErrorMessage(REAL_REPO_ROOT + '/node_modules:' + home + '/.node_modules');
+  assert.equal(sanitized, 'node_modules:.node_modules');
+  assert.ok(!sanitized.includes(home), sanitized);
+  assert.ok(!sanitized.includes(os.userInfo().username + '/'), sanitized);
+});
+
+test('sanitizeErrorMessage ends the protected in-repository span where a glued-on outside path begins', () => {
+  const root = '/Users/jane/work/payment-mocker';
+  const cases = [
+    [root + '/x.js:/Users/jane/secret/b.js', 'x.js:b.js'],
+    [root + '/lib/x.js:12:3,/Users/jane/other/y.js', 'lib/x.js:12:3,y.js'],
+    [root + '/lib/x.js=>/Users/jane/Secret Stuff/z', 'lib/x.js=>z'],
+    [root + '/lib/x.js->/Users/jane/s/z', 'lib/x.js->z'],
+    [root + '/lib/x.js;/Users/jane/s/z', 'lib/x.js;z'],
+    [root + '/lib/x.js=/Users/jane/s/z', 'lib/x.js=z'],
+    [root + '/node_modules/.bin/x(/Users/jane/s/z)', 'node_modules/.bin/x(z)'],
+  ];
+  for (const [input, expected] of cases) {
+    const sanitized = _sanitizeErrorMessageForRoot(input, [], root);
+    assert.equal(sanitized, expected, input);
+    assert.ok(!sanitized.includes('jane'), sanitized);
+  }
+});
+
+test('sanitizeErrorMessage ends the protected span before a glued-on Windows path (`;` is the Windows PATH separator)', () => {
+  const root = 'C:\\Users\\jane\\work\\payment-mocker';
+  const cases = [
+    [root + '\\bin;C:\\Users\\jane\\AppData\\Roaming\\npm', 'bin;npm'],
+    [root + '\\node_modules\\.bin;' + root + '\\bin;C:\\Users\\jane\\x', 'node_modules\\.bin;bin;x'],
+    [root + '\\lib\\x.js,D:\\Users\\jane\\y.js', 'lib\\x.js,y.js'],
+    [root + '\\lib\\x.js:C:\\Users\\jane\\y.js', 'lib\\x.js:y.js'],
+    [root + '\\x(C:\\Users\\jane\\q)', 'x(q)'],
+    // Forward-slash spelling: the generic Unix pattern takes the outside
+    // path from its first `/`, leaving the drive letter behind — the same as
+    // it does for such a path anywhere else in a message.
+    [root + '/lib/x.js;C:/Users/jane/y.js', 'lib/x.js;C:y.js'],
+  ];
+  for (const [input, expected] of cases) {
+    const sanitized = _sanitizeErrorMessageForRoot(input, [], root);
+    assert.equal(sanitized, expected, input);
+    assert.ok(!sanitized.includes('jane'), sanitized);
+  }
+});
+
+test('sanitizeErrorMessage keeps protecting in-repository shapes that only look like a separator (ref(1)/, a-/, foo (1)/, :line:col)', () => {
+  const root = '/Users/jane/work/payment-mocker';
+  const cases = [
+    [root + '/template/ref(1)/x/y.png', 'template/ref(1)/x/y.png'],
+    [root + '/a-/b/c', 'a-/b/c'],
+    [root + '/a~/b+/c', 'a~/b+/c'],
+    [root + '/a=b/c,d;e:f/g', 'a=b/c,d;e:f/g'],
+    [root + '/Downloads/foo (1)/x/y.png', 'Downloads/foo (1)/x/y.png'],
+    [root + '/My Projects/x.js is bad', 'My Projects/x.js is bad'],
+    ['at fn (' + root + '/lib/x.js:12:3)', 'at fn (lib/x.js:12:3)'],
+    ['failed: ' + root + '/lib/x.js, then stopped.', 'failed: lib/x.js, then stopped.'],
+    ['open ' + root + '2/a/b.js', 'open b.js'],
+    ['open /private' + root + '/a/b.js', 'open b.js'],
+  ];
+  for (const [input, expected] of cases) {
+    assert.equal(_sanitizeErrorMessageForRoot(input, [], root), expected, input);
+  }
+});
+
+// Known, accepted gap (see the comment above ABSOLUTE_PATH_PATTERN): a
+// repository path inside a `file://` URL is not rewritten repo-relative; it
+// falls to the generic pattern, which still reduces it to its basename here.
+test('sanitizeErrorMessage: a repository path inside a file:// URL falls to the generic pattern (documented gap)', () => {
+  const root = '/Users/jane/work/payment-mocker';
+  assert.equal(_sanitizeErrorMessageForRoot('at file://' + root + '/lib/x.js:1:2', [], root), 'at file://x.js:1:2');
+});
+
+// The placeholder tokens the known-path pass inserts are restored only where
+// this call inserted them: text in the message that merely looks like one is
+// left as it was, never turned into `undefined` or another path's text.
+test('sanitizeErrorMessage leaves pre-existing placeholder-looking text unchanged', () => {
+  assert.equal(sanitizeErrorMessage('x \uE0000\uE001x y'), 'x \uE0000\uE001x y');
+  assert.equal(sanitizeErrorMessage('x \uE0001\uE001x \uE0007\uE001_ y'), 'x \uE0001\uE001x \uE0007\uE001_ y');
+  const message = 'x \uE0000\uE001x y ' + REAL_REPO_ROOT + '/lib/a.js and \uE0001\uE001x, ' + REAL_REPO_ROOT + '/lib/b.js';
+  const sanitized = sanitizeErrorMessage(message);
+  assert.equal(sanitized, 'x \uE0000\uE001x y lib/a.js and \uE0001\uE001x, lib/b.js');
+  assert.ok(!sanitized.includes('undefined'), sanitized);
+});
