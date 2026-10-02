@@ -368,6 +368,29 @@ test('finishValidationResult drops nothing when no entry was truncated, and stil
   assert.deepEqual(finishValidationResult({ ok: false, errors: [dims] }, { icon }, [extra]), { ok: false, errors: [dims, extra] });
 });
 
+test('an icon of exactly the 4 MB validation ceiling is still handed to validate(), read up to its cap and padded, so the core reports its size', async () => {
+  // The other side of the test below: readIconEntry refuses only ABOVE 4 MB.
+  const name = 'edge-icon.png';
+  const iconPath = path.join(templateRoot, name);
+  fs.writeFileSync(iconPath, PNG_SIGNATURE);
+  fs.truncateSync(iconPath, 4 * 1024 * 1024); // sparse: no 4 MB write
+  try {
+    const { input, findings } = buildValidationInput({ icon: name }, STUB_TEMPLATE, templateRoot);
+    assert.deepEqual(findings, []);
+    assert.equal(input.icon.size, 4 * 1024 * 1024);
+    assert.equal(input.icon.buffer.byteLength, 4 * 1024 * 1024, 'validate() requires size === buffer.byteLength');
+    const result = await validate({ icon: input.icon });
+    assert.ok(
+      result.errors.some(
+        (finding) => finding.rule === 'maxFileSize' && /edge-icon\.png is 4194304 bytes, over the 51200-byte limit for each icon/.test(finding.message)
+      ),
+      'validate() must report the icon as oversized: ' + JSON.stringify(result.errors)
+    );
+  } finally {
+    fs.rmSync(iconPath, { force: true });
+  }
+});
+
 test('an icon over the 4 MB validation ceiling is reported as over the size limit, not as unreadable — the icon route serves it fine', () => {
   const name = 'giant-icon.png';
   const iconPath = path.join(templateRoot, name);

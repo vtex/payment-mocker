@@ -8,10 +8,50 @@ const path = require('node:path');
 const { validate } = require('@vtex/payment-templates-core');
 const { loadBundle, isAllowedBundleFilename, toValidationBundle, toValidationFileEntry } = require('../lib/load-bundle');
 
+// Every directory these tests create under os.tmpdir(), removed in test.after
+// below: some hold files of several MB, and nothing else ever deletes them.
+// `node --test` runs each test file in its own process, so this list and its
+// cleanup only ever cover this file's own directories.
+const tempDirs = [];
+
+function makeTempDir(prefix) {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), prefix));
+  tempDirs.push(dir);
+  return dir;
+}
+
+test.after(() => {
+  // A file left at chmod 0o000 doesn't stop this (unlinking it needs write
+  // permission on its directory, not on the file), but the EACCES test below
+  // restores its mode in `finally` anyway.
+  for (const dir of tempDirs) fs.rmSync(dir, { recursive: true, force: true });
+});
+
+/**
+ * A file of `size` bytes that starts with `head` and is zeros after it — the
+ * same bytes as `head` padded with Buffer.alloc, but created sparse with
+ * fs.truncateSync (as test/validation-input.test.js does), so a multi-MB
+ * fixture is never actually written out. Only for files whose bytes past
+ * `head` don't matter.
+ */
+function sparseFile(head, size) {
+  return { head: Buffer.from(head), size };
+}
+
+function fileSize(contents) {
+  return contents.head === undefined ? Buffer.byteLength(contents) : contents.size;
+}
+
 function makeBundleDir(files) {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'payment-template-bundle-'));
+  const dir = makeTempDir('payment-template-bundle-');
   for (const [name, contents] of Object.entries(files)) {
-    fs.writeFileSync(path.join(dir, name), contents);
+    const filePath = path.join(dir, name);
+    if (contents.head === undefined) {
+      fs.writeFileSync(filePath, contents);
+    } else {
+      fs.writeFileSync(filePath, contents.head);
+      fs.truncateSync(filePath, contents.size);
+    }
   }
   return dir;
 }
@@ -137,7 +177,7 @@ test('loadBundle rejects index.html being a symlink, even to a legitimate file o
     'style.css': 'p { color: red; }',
     'i18n-pt-BR.json': '{"pay":{"title":"Pague"}}',
   });
-  const outsideFile = fs.mkdtempSync(path.join(os.tmpdir(), 'payment-template-outside-'));
+  const outsideFile = makeTempDir('payment-template-outside-');
   const realIndex = path.join(outsideFile, 'index.html');
   fs.writeFileSync(realIndex, '<p data-i18n="pay.title"></p>');
   fs.symlinkSync(realIndex, path.join(dir, 'index.html'));
@@ -194,10 +234,6 @@ const VALIDATION_CEILING = 4 * 1024 * KB;
 const PNG_SIGNATURE = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
 const REFERENCE_DIR = path.join(__dirname, '..', 'template', 'reference');
 
-function withTrailingBytes(head, totalSize) {
-  return Buffer.concat([head, Buffer.alloc(totalSize - head.byteLength)]);
-}
-
 function assertTruncatedEntry(entry, realSize, cap) {
   assert.equal(entry.truncated, true, 'an entry read only up to its cap must be marked truncated');
   assert.equal(entry.size, realSize, 'size must be the real, stat\'d size, not the bytes actually read');
@@ -220,7 +256,7 @@ function assertWholeEntry(entry, contents) {
  * loadBundle reject the copy.
  */
 function referenceBundleWithHtml(makeHtml) {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'payment-template-reference-'));
+  const dir = makeTempDir('payment-template-reference-');
   for (const name of fs.readdirSync(REFERENCE_DIR)) {
     if (isAllowedBundleFilename(name)) fs.copyFileSync(path.join(REFERENCE_DIR, name), path.join(dir, name));
   }
@@ -266,7 +302,7 @@ test('loadBundle reads an asset over CONTRACT.md\'s 256 KB limit only up to that
     'index.html': '<p data-i18n="pay.title"></p>',
     'style.css': 'p { color: red; }',
     'i18n-pt-BR.json': '{"pay":{"title":"Pague"}}',
-    'asset-logo.png': Buffer.alloc(ASSET_CAP + 1),
+    'asset-logo.png': sparseFile('', ASSET_CAP + 1),
   });
   assertTruncatedEntry(loadBundle(dir).assets[0], ASSET_CAP + 1, ASSET_CAP);
 });
@@ -276,7 +312,7 @@ test('loadBundle reads a file exactly at its byte cap in full, not as truncated'
     'index.html': 'a'.repeat(HTML_CAP),
     'style.css': 'p { color: red; }',
     'i18n-pt-BR.json': '{"pay":{"title":"Pague"}}',
-    'asset-logo.png': withTrailingBytes(PNG_SIGNATURE, ASSET_CAP),
+    'asset-logo.png': sparseFile(PNG_SIGNATURE, ASSET_CAP),
   });
   const bundle = loadBundle(dir);
   assert.equal(bundle.html.truncated, undefined);
@@ -291,7 +327,7 @@ test('toValidationBundle hands validate() the real size of every oversized file,
     'index.html': '<p data-i18n="pay.title"></p>' + ' '.repeat(HTML_CAP),
     'style.css': 'p { color: red; }',
     'i18n-pt-BR.json': '{"pay":{"title":"Pague"}}',
-    'asset-logo.png': withTrailingBytes(PNG_SIGNATURE, ASSET_CAP + 1),
+    'asset-logo.png': sparseFile(PNG_SIGNATURE, ASSET_CAP + 1),
   });
   const template = toValidationBundle(loadBundle(dir), 'pt-BR');
   // validate() throws a TypeError unless these agree — the reason a truncated
@@ -319,11 +355,11 @@ test('toValidationBundle hands validate() the REAL size of a truncated asset, wh
     'index.html': '<p data-i18n="pay.title"></p>',
     'style.css': 'p { color: red; }',
     'i18n-pt-BR.json': '{"pay":{"title":"Pague"}}',
-    'asset-big.png': withTrailingBytes(PNG_SIGNATURE, 1100 * KB),
+    'asset-big.png': sparseFile(PNG_SIGNATURE, 1100 * KB),
   };
   const bundle = loadBundle(makeBundleDir(files));
   assertTruncatedEntry(bundle.assets[0], 1100 * KB, ASSET_CAP);
-  const realTotal = Object.values(files).reduce((sum, contents) => sum + Buffer.byteLength(contents), 0);
+  const realTotal = Object.values(files).reduce((sum, contents) => sum + fileSize(contents), 0);
   const result = await validate({ template: toValidationBundle(bundle, 'pt-BR') });
   assert.ok(
     result.errors.some(
@@ -386,11 +422,40 @@ test('toValidationBundle refuses an asset past the 4 MB ceiling, with its own cl
     'index.html': '<p data-i18n="pay.title"></p>',
     'style.css': 'p { color: red; }',
     'i18n-pt-BR.json': '{"pay":{"title":"Pague"}}',
-    'asset-huge.png': withTrailingBytes(PNG_SIGNATURE, VALIDATION_CEILING + 1),
+    'asset-huge.png': sparseFile(PNG_SIGNATURE, VALIDATION_CEILING + 1),
   });
   const bundle = loadBundle(dir);
   assertTruncatedEntry(bundle.assets[0], VALIDATION_CEILING + 1, ASSET_CAP);
   assert.throws(() => toValidationBundle(bundle, 'pt-BR'), /asset-huge\.png is \d+ bytes, far over the size limit for each asset and over the \d+-byte ceiling/);
+});
+
+// Exactly at the ceiling, where every test above and below is 4 MB + 1. Three
+// comparisons decide this boundary and have to agree: readFileEntry reads a
+// text file whole up to AND including 4 MB, and toValidationFileEntry (like
+// lib/validation-input.js's readIconEntry) refuses only above it. Changing
+// readFileEntry's `<=` to `<` alone would make this index.html come back
+// truncated, and toValidationBundle would then fail on it with the internal
+// "only partly read" error instead of handing it to validate().
+test('an index.html and an asset of exactly 4 MB are not refused: the index.html is read whole, the asset up to its cap and padded back out', () => {
+  const dir = makeBundleDir({
+    'index.html': sparseFile('<p data-i18n="pay.title"></p>', VALIDATION_CEILING),
+    'style.css': 'p { color: red; }',
+    'i18n-pt-BR.json': '{"pay":{"title":"Pague"}}',
+    'asset-edge.png': sparseFile(PNG_SIGNATURE, VALIDATION_CEILING),
+  });
+  const bundle = loadBundle(dir);
+  assert.equal(bundle.html.truncated, undefined, 'a text file of exactly 4 MB must be read whole');
+  assert.equal(bundle.html.size, VALIDATION_CEILING);
+  assert.equal(bundle.html.buffer.byteLength, VALIDATION_CEILING);
+  assertTruncatedEntry(bundle.assets[0], VALIDATION_CEILING, ASSET_CAP);
+
+  const template = toValidationBundle(bundle, 'pt-BR');
+  assert.equal(template.html.size, VALIDATION_CEILING);
+  assert.equal(template.html.buffer.byteLength, VALIDATION_CEILING);
+  const [asset] = template.assets;
+  assert.equal(asset.size, VALIDATION_CEILING);
+  assert.equal(asset.buffer.byteLength, VALIDATION_CEILING, 'the asset must be zero-padded to its real size');
+  assert.ok(Buffer.from(asset.buffer.subarray(0, PNG_SIGNATURE.length)).equals(PNG_SIGNATURE), 'the bytes read must lead the padded buffer');
 });
 
 test('a text file just over 4 MB is read only up to its cap and refused by toValidationBundle with one clear message naming it and its size', () => {
@@ -493,8 +558,11 @@ test('loadBundle never fully reads an oversized asset or a text file past 4 MB, 
   const assetPath = path.join(dir, 'asset-huge.png');
   const htmlPath = path.join(dir, 'index.html');
   const i18nPath = path.join(dir, 'i18n-en-US.json');
-  fs.writeFileSync(assetPath, Buffer.alloc(ASSET_CAP * 4));
-  fs.writeFileSync(htmlPath, ' '.repeat(VALIDATION_CEILING + 1));
+  // Only the sizes and the fs calls matter here, not the bytes: both sparse.
+  fs.writeFileSync(assetPath, '');
+  fs.truncateSync(assetPath, ASSET_CAP * 4);
+  fs.writeFileSync(htmlPath, '');
+  fs.truncateSync(htmlPath, VALIDATION_CEILING + 1);
   const i18n = '{"pay":{"title":' + JSON.stringify('a'.repeat(I18N_CAP)) + '}}';
   fs.writeFileSync(i18nPath, i18n);
 
