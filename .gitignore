@@ -1,5 +1,6 @@
 .DS_Store
-.sass-cache
 .grunt
 node_modules
-build
+
+# The repository standardizes on npm; package-lock.json is the tracked lockfile.
+yarn.lock
