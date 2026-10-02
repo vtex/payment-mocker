@@ -176,7 +176,14 @@ Install dependencies from the repository root, then run:
 npm run validate:reference
 ```
 
-This runs `@vtex/payment-templates-core` against the bundle configured in `template/preview.config.json`. A passing run prints `validate: ok — template at template/<bundleDir> passed all applicable rules.`
+This runs `@vtex/payment-templates-core` against the bundle configured in `template/preview.config.json`. A passing run prints `validate: ok — template at template/<bundleDir>` (with a warning count in parentheses if any warnings apply). A failing run prints the count of errors/warnings followed by one line per finding, with a `file:line:column` location when the rule reports one:
+
+```
+validate: failed (1 error) — template at template/reference
+  [error] htmlSafety index.html:1:1 — <script> is never allowed in a payment template. Author scripting and embedded content are forbidden.
+```
+
+For CI, run `npm run -s validate:reference -- --json` to print the raw `{ ok, errors }` result instead. The `-s` keeps npm's own `> payment-mocker@… validate:reference` header out of stdout, so the output is pure JSON you can pipe to `jq`; `node scripts/validate-reference.js --json` is the equivalent without npm.
 
 Local validation is for feedback only. VTEX runs the same validator on upload before anything is published.
 
